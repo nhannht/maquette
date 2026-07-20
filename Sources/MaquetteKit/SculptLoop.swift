@@ -51,13 +51,35 @@ public struct SlotUsage {
     }
 }
 
+/// Starting incumbent for a resumed run: the previous run's best model
+/// becomes cycle 0 and every new cycle must beat it through the pairwise
+/// gate. Lets the user keep refining past an accepted score.
+public struct SculptSeed {
+    public let spec: String
+    public let code: String
+    public let review: ReviewResult
+    public let sheet: Data
+
+    public init(spec: String, code: String, review: ReviewResult, sheet: Data) {
+        self.spec = spec
+        self.code = code
+        self.review = review
+        self.sheet = sheet
+    }
+}
+
 public struct SculptOutcome {
     public let accepted: Bool
     public let finalScore: Double
     public let cyclesRun: Int
-    /// Which cycle produced the exported model, nil when none was reviewable.
+    /// Which cycle produced the exported model: nil when none was reviewable,
+    /// 0 when a resumed run's seed was never beaten.
     public let bestCycle: Int?
     public let finalFactory: String
+    /// The best model's review and the spec in force at the end - everything
+    /// a follow-up run needs to seed itself.
+    public let bestReview: ReviewResult?
+    public let finalSpec: String
     public let coderUsage: SlotUsage
     public let visionUsage: SlotUsage
     /// Written artifacts, nil when that format did not make it out.
@@ -111,7 +133,7 @@ public final class SculptLoop {
         self.harness = harness
     }
 
-    public func run(photoPath: String,
+    public func run(photoPath: String, seed: SculptSeed? = nil,
                     onEvent: (SculptEvent) -> Void) async throws -> SculptOutcome {
         let fm = FileManager.default
         try fm.createDirectory(at: config.outDir, withIntermediateDirectories: true)
@@ -131,10 +153,6 @@ public final class SculptLoop {
         }
         let subjectPNG = try Self.pngData(subject)
 
-        onEvent(.stage("analyze + spec (vision slot)"))
-        var spec = try await makeSpec(subjectPNG: subjectPNG, critique: nil, previousSpec: nil)
-        try write(spec, name: "spec-1.json")
-
         // `code` is transient: it is the previous-code hint fed to the next
         // codegen call, and refine-spec deliberately clears it to force a fresh
         // build. `best` is durable: the incumbent model, replaceable only by a
@@ -147,6 +165,21 @@ public final class SculptLoop {
         var lastRegressed = false
         var freshBuild = true
         var cyclesRun = 0
+
+        var spec: String
+        if let seed {
+            // Resumed run: the seed is the incumbent, no spec call needed.
+            spec = seed.spec
+            best = (cycle: 0, code: seed.code, review: seed.review, sheet: seed.sheet)
+            freshBuild = false
+            try write(seed.sheet, name: "seed-comparison.png")
+            onEvent(.stage("resuming from previous best (score "
+                + String(format: "%.2f", seed.review.overallScore) + ")"))
+        } else {
+            onEvent(.stage("analyze + spec (vision slot)"))
+            spec = try await makeSpec(subjectPNG: subjectPNG, critique: nil, previousSpec: nil)
+        }
+        try write(spec, name: "spec-1.json")
 
         for cycle in 1...config.maxCycles {
             cyclesRun = cycle
@@ -310,6 +343,8 @@ public final class SculptLoop {
                              cyclesRun: cyclesRun,
                              bestCycle: best?.cycle,
                              finalFactory: finalCode,
+                             bestReview: best?.review,
+                             finalSpec: spec,
                              coderUsage: coderUsage,
                              visionUsage: visionUsage,
                              glbPath: export.glb,
