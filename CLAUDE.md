@@ -50,6 +50,15 @@ photo -> subject lift (DepthCardKit, on-device)
    two-object screenshot reference. Whole validation under $0.10. Known gaps:
    reasoning models crash ChatClient (IMG3D-12), multi-object references confuse
    the loop (IMG3D-13), judge calibration varies by VLM tier.
-4. Export + UX: GLB/USDZ, drop zone with live cycle progression.
+4. DONE: export + UX. GLB + USDZ from the bundled three.js r185 exporter
+   addons inside the WKWebView (GLTFExporter + USDZExporter + fflate, NOT
+   DepthCardKit's texture-flattening path); runs keep and export the
+   best-scoring cycle, not the last. Reasoning models fixed (IMG3D-12):
+   ChatClient caps reasoning via OpenRouter reasoning.max_tokens, truncation
+   is a first-class error, and non-code responses throw instead of reaching
+   new Function - gemini-3.1-pro-preview earbuds ACCEPTED 0.78 in 1 cycle.
+   App UI: drop zone, live per-cycle cards (score, action, critique,
+   comparison sheet), SceneKit preview of the USDZ, Quick Look. Run
+   artifacts land in ~/Library/Application Support/Maquette/runs/.
 5. Benchmarks (clean single-object photo set + portrait) + launch prep
    (README, GIF, showcase/).
