@@ -284,7 +284,28 @@ public final class SculptLoop {
         }
         try write(spec, name: "spec-1.json")
 
+        // Gate 0, resumed runs only: the user clicked Keep Refining, so hand
+        // them the wheel before any token is spent - the judge's last critique
+        // is the suggested instruction. acceptNow just re-exports the seed.
+        var userAccepted = false
+        if let seed {
+            let decision = await gate.reviewCycle(SculptCycleSnapshot(
+                cycle: 0, review: seed.review, challengerWon: nil, bestCycle: 0,
+                bestScore: seed.review.overallScore, spec: spec,
+                availableCycles: [0]))
+            if let edited = decision.critique, edited != seed.review.critique {
+                critiqueOverride = edited
+                try write(edited, name: "seed-critique-edited.txt")
+            }
+            if let editedSpec = decision.spec, editedSpec != spec {
+                spec = editedSpec
+                try write(spec, name: "spec-1-edited.json")
+            }
+            userAccepted = decision.action == .acceptNow
+        }
+
         for cycle in 1...config.maxCycles {
+            if userAccepted { break }
             cyclesRun = cycle
             onEvent(.cycleStart(cycle))
             let cycleDir = config.outDir.appendingPathComponent("cycle-\(cycle)")
@@ -445,10 +466,14 @@ public final class SculptLoop {
             }
 
             if decision.action == .acceptNow { break }
-            if case .auto = decision.action,
-               (best?.review.overallScore ?? 0) >= config.threshold
-                || review.action == "stop" || review.action == "continue" {
-                break
+            if case .auto = decision.action {
+                // Fresh runs stop when the judge is satisfied. Seeded runs
+                // exist because the judge's acceptance was not enough for the
+                // user: on autopilot they stop only when the judge says more
+                // cycles cannot help, otherwise on the user's word or the cap.
+                let judgeDone = (best?.review.overallScore ?? 0) >= config.threshold
+                    || review.action == "stop" || review.action == "continue"
+                if seed == nil ? judgeDone : review.action == "stop" { break }
             }
             critique = review.critique
             jsError = nil

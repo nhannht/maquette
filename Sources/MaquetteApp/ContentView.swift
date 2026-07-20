@@ -266,7 +266,8 @@ struct ContentView: View {
                     briefGate
                 } else {
                     VStack(spacing: 12) {
-                        if let latest = vm.cycles.last(where: { $0.comparison != nil })?.comparison {
+                        if let latest = vm.cycles.last(where: { $0.comparison != nil })?.comparison
+                            ?? vm.seedComparison {
                             Image(nsImage: latest)
                                 .resizable()
                                 .scaledToFit()
@@ -339,9 +340,13 @@ struct ContentView: View {
     }
 
     /// Gate 2: the judge's suggested next instruction. Edit it or just go.
+    /// Gate 0 (Keep Refining) is the same box before any cycle has run.
     private var cycleGateControls: some View {
-        VStack(spacing: 10) {
-            Text("Next instruction for the coder - edit or just continue.")
+        let refining = vm.cycleGate?.snapshot.cycle == 0
+        return VStack(spacing: 10) {
+            Text(refining
+                 ? "What should change? Edit the instruction, then refine."
+                 : "Next instruction for the coder - edit or just continue.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
             TextEditor(text: Binding(
@@ -354,10 +359,14 @@ struct ContentView: View {
                 .background(.quaternary.opacity(0.4),
                             in: RoundedRectangle(cornerRadius: 8))
             HStack(spacing: 12) {
-                Button("Use This Model") { vm.resumeCycle(accept: true) }
-                Button("Next Cycle") { vm.resumeCycle(accept: false) }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                if !refining {
+                    Button("Use This Model") { vm.resumeCycle(accept: true) }
+                }
+                Button(refining ? "Refine" : "Next Cycle") {
+                    vm.resumeCycle(accept: false)
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
             }
         }
         .padding(.bottom, 12)

@@ -60,6 +60,9 @@ final class SculptViewModel {
     var pendingBrief: String?
     /// Non-nil while the loop waits between cycles.
     var cycleGate: CycleGateState?
+    /// The resumed run's previous-best comparison sheet, so gate 0 shows the
+    /// model being refined instead of a spinner.
+    var seedComparison: NSImage?
 
     private var briefContinuation: CheckedContinuation<String, Never>?
     private var cycleContinuation: CheckedContinuation<SculptCycleDecision, Never>?
@@ -108,7 +111,7 @@ final class SculptViewModel {
                 let loop = SculptLoop(config: config, harness: harness)
                 let outcome = try await loop.run(photoPath: photo.path,
                                                  seed: seed,
-                                                 gate: makeGate()) { [weak self] event in
+                                                 gate: makeGate(seeded: seed != nil)) { [weak self] event in
                     self?.apply(event)
                 }
                 finish(outcome)
@@ -143,11 +146,11 @@ final class SculptViewModel {
 
     // MARK: - Human gates
 
-    /// The loop's two pause points. The brief gate always waits: the user
+    /// The loop's pause points. The brief gate always waits: the user
     /// confirms or edits the suggested prompt before tokens are spent. The
-    /// cycle gate waits only when there is a next cycle to steer and
-    /// auto-continue is off.
-    private func makeGate() -> SculptGate {
+    /// cycle gate waits whenever there is a next cycle to steer - including
+    /// gate 0 of a resumed run, which is the whole point of Keep Refining.
+    private func makeGate(seeded: Bool) -> SculptGate {
         SculptGate(
             approveBrief: { [weak self] draft in
                 guard let self else { return draft }
@@ -159,14 +162,18 @@ final class SculptViewModel {
             },
             reviewCycle: { [weak self] snapshot in
                 guard let self else { return SculptCycleDecision() }
-                // No pause when the loop is about to stop anyway (accepted,
-                // judge says stop, or cycle cap reached) - the result screen
-                // takes over, with Keep Refining for more.
-                let wouldStop = snapshot.bestScore >= Self.threshold
-                    || snapshot.review.action == "stop"
-                    || snapshot.review.action == "continue"
-                    || snapshot.cycle >= Self.maxCycles
-                guard !wouldStop, !self.autoContinue() else {
+                guard !self.autoContinue() else { return SculptCycleDecision() }
+                // No pause when there is nothing left to steer: the cycle cap,
+                // or a fresh run the judge is about to accept (the result
+                // screen takes over; Keep Refining reopens the wheel). A
+                // seeded run never ends on the judge's score - the user
+                // resumed past it deliberately, so only their word stops it.
+                let lastCycle = snapshot.cycle >= Self.maxCycles
+                let freshRunEnding = !seeded
+                    && (snapshot.bestScore >= Self.threshold
+                        || snapshot.review.action == "stop"
+                        || snapshot.review.action == "continue")
+                guard !lastCycle, !freshRunEnding else {
                     return SculptCycleDecision()
                 }
                 return await withCheckedContinuation { cont in
@@ -225,6 +232,11 @@ final class SculptViewModel {
                 || name.hasPrefix("resuming"), let outDir {
                 subjectImage = NSImage(contentsOf:
                     outDir.appendingPathComponent("subject.png"))
+            }
+            // The loop writes the seed sheet right before this event fires.
+            if name.hasPrefix("resuming"), let outDir {
+                seedComparison = NSImage(contentsOf:
+                    outDir.appendingPathComponent("seed-comparison.png"))
             }
             // The comparison sheet hits disk right before this stage: load it
             // now so the live view shows the model before the verdict arrives.
@@ -302,6 +314,7 @@ final class SculptViewModel {
         resumeSeed = nil
         pendingBrief = nil
         cycleGate = nil
+        seedComparison = nil
         briefContinuation = nil
         cycleContinuation = nil
         accepted = false
