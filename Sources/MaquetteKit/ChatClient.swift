@@ -28,6 +28,16 @@ public struct ChatMessage {
     }
 }
 
+public struct ChatUsage {
+    public let promptTokens: Int
+    public let completionTokens: Int
+}
+
+public struct ChatResult {
+    public let text: String
+    public let usage: ChatUsage?
+}
+
 public enum ChatClientError: Error, CustomStringConvertible {
     case http(status: Int, body: String)
     case malformedResponse(String)
@@ -81,6 +91,45 @@ public struct ChatClient {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// Non-streaming completion. The sculpt loop uses this instead of stream:
+    /// the JSON body of a non-streamed response carries the usage block, which
+    /// is the only portable way to get token counts for cost accounting.
+    public func completeOnce(model: String, messages: [ChatMessage],
+                             temperature: Double? = nil,
+                             maxTokens: Int? = nil) async throws -> ChatResult {
+        let request = try makeRequest(model: model, messages: messages,
+                                      temperature: temperature,
+                                      maxTokens: maxTokens, stream: false)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw ChatClientError.malformedResponse("not an HTTP response")
+        }
+        guard http.statusCode == 200 else {
+            throw ChatClientError.http(status: http.statusCode,
+                                       body: String(data: data, encoding: .utf8) ?? "")
+        }
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = obj["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any] else {
+            throw ChatClientError.malformedResponse(String(data: data, encoding: .utf8)?
+                .prefix(300).description ?? "unreadable body")
+        }
+        let text: String
+        if let content = message["content"] as? String {
+            text = content
+        } else if let parts = message["content"] as? [[String: Any]] {
+            text = parts.compactMap { $0["text"] as? String }.joined()
+        } else {
+            throw ChatClientError.malformedResponse("message has no content")
+        }
+        var usage: ChatUsage?
+        if let u = obj["usage"] as? [String: Any] {
+            usage = ChatUsage(promptTokens: u["prompt_tokens"] as? Int ?? 0,
+                              completionTokens: u["completion_tokens"] as? Int ?? 0)
+        }
+        return ChatResult(text: text, usage: usage)
     }
 
     /// Convenience: run a completion to the end and return the full text.
