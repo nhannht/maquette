@@ -84,10 +84,31 @@ public enum SculptPrompts {
     """
 
     public static func codegenUser(spec: String, previousCode: String?,
-                                   critique: String?, jsError: String?) -> String {
+                                   critique: String?, jsError: String?,
+                                   incumbentScore: Double? = nil,
+                                   layerScores: [String: Double]? = nil,
+                                   rendersAttached: Bool = false,
+                                   regressed: Bool = false) -> String {
         var text = "SPEC:\n\(spec)"
         if let previousCode {
-            text += "\n\nPREVIOUS CODE:\n\(previousCode)"
+            if let incumbentScore {
+                var header = "BEST CODE SO FAR (reviewer score "
+                    + String(format: "%.2f", incumbentScore)
+                if let layerScores, !layerScores.isEmpty {
+                    header += "; " + layerScores.sorted { $0.key < $1.key }
+                        .map { "\($0.key) \(String(format: "%.2f", $0.value))" }
+                        .joined(separator: ", ")
+                }
+                text += "\n\n\(header)):\n\(previousCode)"
+            } else {
+                text += "\n\nPREVIOUS CODE:\n\(previousCode)"
+            }
+        }
+        if rendersAttached {
+            text += """
+            \n\nThe attached image shows the reference photo beside four renders of \
+            the best code. Compare them yourself and fix what visibly differs.
+            """
         }
         if let jsError {
             text += """
@@ -100,6 +121,13 @@ public enum SculptPrompts {
             Return the complete improved code fixing every point.
             CRITIQUE:\n\(critique)
             """
+            if regressed {
+                text += """
+                \n\nYour latest attempt was judged WORSE than the best code above and \
+                was discarded. Start from the best code and take a different approach \
+                to the critique than the discarded attempt.
+                """
+            }
         }
         return text
     }
@@ -140,5 +168,33 @@ public enum SculptPrompts {
     public static let reviewUser = """
     Left: reference photo. Right: four renders of the current procedural model. \
     Score it and return the JSON verdict.
+    """
+
+    // MARK: - Stage 4: pairwise gate (vision slot)
+
+    // Absolute VLM scores drift +/-0.1 between identical runs; head-to-head
+    // comparison is far more stable, so the incumbent model is only replaced
+    // by a challenger that wins this call.
+
+    public static let pairwiseTemperature = 0.1
+    public static let pairwiseMaxTokens = 1024
+    public static let pairwiseReasoningMaxTokens = 512
+
+    public static let pairwiseSystem = """
+    You are a strict 3D visual QA judge. You receive two comparison sheets for \
+    the SAME reference photo. Each sheet shows the reference photo on the left \
+    and four labeled renders of a procedural model on the right. The first image \
+    is model A, the second image is model B.
+
+    Decide which model matches the reference photo better overall, weighing \
+    silhouette and proportions, component structure, form detail, and materials.
+
+    Respond with ONLY a JSON object, no prose, no markdown fences:
+    {"winner": "A" or "B", "reason": "one concrete sentence"}
+    """
+
+    public static let pairwiseUser = """
+    First image: model A. Second image: model B. Same reference photo in both. \
+    Which model matches the reference better? Return the JSON verdict.
     """
 }
