@@ -54,6 +54,13 @@ final class SculptLoopTests: XCTestCase {
         XCTAssertEqual(try SculptLoop.extractCode(raw), raw)
     }
 
+    func testCodegenBudgetEscalates() {
+        XCTAssertEqual(SculptLoop.codegenBudget(attempt: 0), 16384)
+        XCTAssertEqual(SculptLoop.codegenBudget(attempt: 1), 32768)
+        XCTAssertEqual(SculptLoop.codegenBudget(attempt: 2), 65536)
+        XCTAssertEqual(SculptLoop.codegenBudget(attempt: 3), 65536)
+    }
+
     func testRetryableCodegenFailures() {
         XCTAssertTrue(SculptLoop.isRetryableCodegenFailure(
             ChatClientError.truncated("reasoning ate the budget")))

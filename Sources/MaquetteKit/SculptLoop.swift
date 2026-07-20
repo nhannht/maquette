@@ -227,7 +227,7 @@ public final class SculptLoop {
                             ChatMessage(role: .user, content: userContent),
                         ],
                         temperature: SculptPrompts.codegenTemperature,
-                        maxTokens: SculptPrompts.codegenMaxTokens,
+                        maxTokens: Self.codegenBudget(attempt: attempt),
                         reasoningMaxTokens: config.coder.reasoning
                             ? SculptPrompts.codegenReasoningMaxTokens : nil)
                     coderUsage.add(result.usage)
@@ -453,6 +453,15 @@ public final class SculptLoop {
         let verdict = try Self.parsePairwise(result.text)
         let firstWon = verdict.winner == "A"
         return (incumbentFirst ? !firstWon : firstWon, verdict.reason)
+    }
+
+    /// Completion budget for a codegen attempt, doubling per retry. Some
+    /// reasoning models ignore the advisory reasoning cap outright and eat
+    /// the entire budget thinking (kimi-k2.7-code consumed 16384 of 16384);
+    /// when the failure is "hit max_tokens", more tokens IS the remedy -
+    /// retrying the same budget can only starve identically.
+    nonisolated static func codegenBudget(attempt: Int) -> Int {
+        min(SculptPrompts.codegenMaxTokens << attempt, 65536)
     }
 
     /// Attempt-scoped codegen failures: the model hit its token budget before
