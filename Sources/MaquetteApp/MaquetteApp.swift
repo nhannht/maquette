@@ -4,7 +4,7 @@ import AppKit
 @main
 struct MaquetteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var settings = SettingsStore()
+    @State private var settings = SettingsStore.shared
 
     var body: some Scene {
         WindowGroup("Maquette") {

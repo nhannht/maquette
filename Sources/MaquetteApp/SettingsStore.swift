@@ -8,6 +8,11 @@ import MaquetteKit
 @MainActor
 @Observable
 final class SettingsStore {
+    /// One instance per process: SwiftUI constructs the App struct more than
+    /// once, and each SettingsStore() init reads both Keychain items - with a
+    /// fresh instance per construction that meant 2 items x N constructions
+    /// permission prompts at launch.
+    static let shared = SettingsStore()
     enum Slot: String, CaseIterable {
         case coder, vision
 

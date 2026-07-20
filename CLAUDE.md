@@ -32,9 +32,12 @@ photo -> subject lift (DepthCardKit, on-device)
 
 ## Build and test
 
-- Build: `swift build 2>&1 | tail -20`
+- Build: `./build.sh 2>&1 | tail -20` - builds AND signs both executables with
+  the Apple Development cert. Plain `swift build` leaves ad-hoc signatures whose
+  identity changes every rebuild, so Keychain "Always Allow" never sticks and
+  key prompts return on every launch. Always build via the script.
 - Tests: `swift test 2>&1 | tail -20`
-- Run app: background Bash `swift run MaquetteApp > <scratchpad>/app.log 2>&1`
+- Run app: background Bash `.build/debug/MaquetteApp > <scratchpad>/app.log 2>&1`
 
 ## Phases (IMG3D-10)
 
