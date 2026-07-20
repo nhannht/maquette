@@ -17,6 +17,10 @@ let package = Package(
             name: "MaquetteApp",
             dependencies: ["MaquetteKit"],
             path: "Sources/MaquetteApp"),
+        .executableTarget(
+            name: "maquette-cli",
+            dependencies: ["MaquetteKit"],
+            path: "Sources/maquette-cli"),
         .testTarget(
             name: "MaquetteKitTests",
             dependencies: ["MaquetteKit"],
