@@ -16,11 +16,19 @@ public struct SculptConfig {
     /// multimodal coder (gemini, kimi); turn off for text-only coders like
     /// qwen3-coder, whose endpoint rejects image parts.
     public var coderSeesRenders: Bool
+    /// What the user wants beyond what the photo shows (interior, open state,
+    /// hidden side). Fed into spec generation; the spec stays the single
+    /// authoritative target for coder and judge alike.
+    public var userIntent: String?
+    /// A ready spec (hand-written or from a previous run) that replaces the
+    /// spec call entirely on fresh runs. Ignored on seeded runs.
+    public var presetSpec: String?
     public var outDir: URL
 
     public init(coder: ModelSlotConfig, vision: ModelSlotConfig,
                 threshold: Double = 0.7, maxCycles: Int = 5,
                 codeErrorRetries: Int = 2, coderSeesRenders: Bool = true,
+                userIntent: String? = nil, presetSpec: String? = nil,
                 outDir: URL) {
         self.coder = coder
         self.vision = vision
@@ -28,6 +36,8 @@ public struct SculptConfig {
         self.maxCycles = maxCycles
         self.codeErrorRetries = codeErrorRetries
         self.coderSeesRenders = coderSeesRenders
+        self.userIntent = userIntent
+        self.presetSpec = presetSpec
         self.outDir = outDir
     }
 }
@@ -103,6 +113,72 @@ public struct PairwiseVerdict: Decodable {
     public let reason: String
 }
 
+/// What the loop knows when it hands control to the human after a cycle.
+public struct SculptCycleSnapshot {
+    public let cycle: Int
+    public let review: ReviewResult
+    /// nil on the first reviewable cycle: there was no incumbent to beat.
+    public let challengerWon: Bool?
+    public let bestCycle: Int
+    public let bestScore: Double
+    public let spec: String
+    /// Cycles whose model can be forced incumbent (0 = a resumed run's seed).
+    public let availableCycles: [Int]
+}
+
+/// The human's answer at a cycle gate. Every field defaults to "let the loop
+/// decide", so autopilot is the zero value, not a separate code path.
+public struct SculptCycleDecision {
+    public enum Action {
+        /// Loop applies its own threshold / stop / continue logic.
+        case auto
+        /// Keep cycling even past the threshold.
+        case continueRun
+        /// Stop now and export the current best.
+        case acceptNow
+    }
+
+    public var action: Action
+    /// Replaces the judge's critique in the next codegen prompt.
+    public var critique: String?
+    /// Forces this cycle's model to be the incumbent, overriding the pairwise
+    /// verdict. The human eye is ground truth over the judge.
+    public var forcedIncumbent: Int?
+    /// Replaces the spec from the next cycle on. The incumbent is kept: the
+    /// coder adapts the best code to the new spec rather than starting over.
+    public var spec: String?
+
+    public init(action: Action = .auto, critique: String? = nil,
+                forcedIncumbent: Int? = nil, spec: String? = nil) {
+        self.action = action
+        self.critique = critique
+        self.forcedIncumbent = forcedIncumbent
+        self.spec = spec
+    }
+}
+
+/// The human-in-the-loop hooks. The loop calls them at its two natural pause
+/// points; autopilot implementations return immediately, interactive ones
+/// suspend until the user acts. One channel for all modes - no flags inside
+/// the loop.
+public struct SculptGate {
+    /// Review the spec before cycles start (also fires on resumed runs, with
+    /// the seed's spec). Returns the spec to use, edited or unchanged.
+    public var approveSpec: (String) async -> String
+    /// After each cycle's review, export, and pairwise verdict.
+    public var reviewCycle: (SculptCycleSnapshot) async -> SculptCycleDecision
+
+    public init(approveSpec: @escaping (String) async -> String,
+                reviewCycle: @escaping (SculptCycleSnapshot) async -> SculptCycleDecision) {
+        self.approveSpec = approveSpec
+        self.reviewCycle = reviewCycle
+    }
+
+    public static let autopilot = SculptGate(
+        approveSpec: { $0 },
+        reviewCycle: { _ in SculptCycleDecision() })
+}
+
 public enum SculptLoopError: Error, CustomStringConvertible {
     case badReviewJSON(String)
     case badPairwiseJSON(String)
@@ -134,6 +210,7 @@ public final class SculptLoop {
     }
 
     public func run(photoPath: String, seed: SculptSeed? = nil,
+                    gate: SculptGate = .autopilot,
                     onEvent: (SculptEvent) -> Void) async throws -> SculptOutcome {
         let fm = FileManager.default
         try fm.createDirectory(at: config.outDir, withIntermediateDirectories: true)
@@ -160,8 +237,14 @@ public final class SculptLoop {
         // stops a late regression from discarding a better earlier model.
         var code = ""
         var critique: String?
+        /// One-shot human rewrite of the critique, applied to the next codegen
+        /// instead of the incumbent's stored critique.
+        var critiqueOverride: String?
         var jsError: String?
         var best: (cycle: Int, code: String, review: ReviewResult, sheet: Data)?
+        /// Every reviewable model, keyed by cycle (0 = a resumed run's seed),
+        /// so the human can force any of them incumbent at a gate.
+        var history: [Int: (code: String, review: ReviewResult, sheet: Data)] = [:]
         var lastRegressed = false
         var freshBuild = true
         var cyclesRun = 0
@@ -171,14 +254,21 @@ public final class SculptLoop {
             // Resumed run: the seed is the incumbent, no spec call needed.
             spec = seed.spec
             best = (cycle: 0, code: seed.code, review: seed.review, sheet: seed.sheet)
+            history[0] = (seed.code, seed.review, seed.sheet)
             freshBuild = false
             try write(seed.sheet, name: "seed-comparison.png")
             onEvent(.stage("resuming from previous best (score "
                 + String(format: "%.2f", seed.review.overallScore) + ")"))
+        } else if let preset = config.presetSpec {
+            spec = preset
+            onEvent(.stage("using provided spec"))
         } else {
             onEvent(.stage("analyze + spec (vision slot)"))
             spec = try await makeSpec(subjectPNG: subjectPNG, critique: nil, previousSpec: nil)
         }
+        // Gate 1: the human reads and edits the actual build target before any
+        // coder token is spent. Autopilot returns it unchanged.
+        spec = await gate.approveSpec(spec)
         try write(spec, name: "spec-1.json")
 
         for cycle in 1...config.maxCycles {
@@ -193,9 +283,10 @@ public final class SculptLoop {
             // refine) starts from the spec alone.
             if let best, !freshBuild {
                 code = best.code
-                critique = best.review.critique
+                critique = critiqueOverride ?? best.review.critique
                 jsError = nil
             }
+            critiqueOverride = nil
             freshBuild = false
 
             // Codegen, with a bounded free retry lane for plain JS crashes.
@@ -288,10 +379,12 @@ public final class SculptLoop {
                 options: [.prettyPrinted, .sortedKeys])
             try write(reviewJSON, name: "cycle-\(cycle)/review.json")
             onEvent(.review(cycle: cycle, review))
+            history[cycle] = (code, review, sheet)
 
             // Pairwise gate: absolute scores are too noisy to rank two models,
             // so a challenger replaces the incumbent only by beating it
             // head-to-head. The kept model never regresses in the judge's eyes.
+            var pairwiseWon: Bool?
             if let incumbent = best {
                 onEvent(.stage("pairwise vs best (vision slot)"))
                 let (challengerWon, reason) = try await makePairwise(
@@ -303,6 +396,7 @@ public final class SculptLoop {
                 try write(pairwiseJSON, name: "cycle-\(cycle)/pairwise.json")
                 onEvent(.pairwise(cycle: cycle, challengerWon: challengerWon,
                                   reason: reason))
+                pairwiseWon = challengerWon
                 if challengerWon {
                     best = (cycle, code, review, sheet)
                     lastRegressed = false
@@ -313,13 +407,42 @@ public final class SculptLoop {
                 best = (cycle, code, review, sheet)
             }
 
-            if (best?.review.overallScore ?? 0) >= config.threshold
+            // Gate 2: the judge's verdicts are advisory; the human can rewrite
+            // the critique the coder will see, force any cycle's model as the
+            // incumbent, change the spec, keep cycling past the threshold, or
+            // stop right here. Autopilot answers instantly with defaults.
+            let decision = await gate.reviewCycle(SculptCycleSnapshot(
+                cycle: cycle, review: review, challengerWon: pairwiseWon,
+                bestCycle: best?.cycle ?? cycle,
+                bestScore: best?.review.overallScore ?? review.overallScore,
+                spec: spec, availableCycles: history.keys.sorted()))
+            if let forced = decision.forcedIncumbent, let entry = history[forced] {
+                best = (forced, entry.code, entry.review, entry.sheet)
+                lastRegressed = false
+                try write("human forced cycle \(forced) as incumbent",
+                          name: "cycle-\(cycle)/incumbent-override.txt")
+            }
+            if let editedSpec = decision.spec, editedSpec != spec {
+                spec = editedSpec
+                try write(spec, name: "spec-\(cycle + 1)-edited.json")
+            }
+            if let edited = decision.critique, edited != review.critique {
+                critiqueOverride = edited
+                try write(edited, name: "cycle-\(cycle)/critique-edited.txt")
+            }
+
+            if decision.action == .acceptNow { break }
+            if case .auto = decision.action,
+               (best?.review.overallScore ?? 0) >= config.threshold
                 || review.action == "stop" || review.action == "continue" {
                 break
             }
             critique = review.critique
             jsError = nil
-            if review.action == "refine-spec" {
+            // A human spec edit outranks the judge's refine-spec: their edit
+            // IS the spec revision, and the incumbent is kept so the coder
+            // adapts the best code instead of starting over.
+            if review.action == "refine-spec" && decision.spec == nil {
                 onEvent(.stage("refine spec (vision slot)"))
                 spec = try await makeSpec(subjectPNG: subjectPNG,
                                           critique: review.critique, previousSpec: spec)
@@ -394,7 +517,9 @@ public final class SculptLoop {
                 ChatMessage(role: .system, text: SculptPrompts.specSystem),
                 ChatMessage(role: .user, content: [
                     .imagePNG(subjectPNG),
-                    .text(SculptPrompts.specUser(critique: critique, previousSpec: previousSpec)),
+                    .text(SculptPrompts.specUser(critique: critique,
+                                                 previousSpec: previousSpec,
+                                                 intent: config.userIntent)),
                 ]),
             ],
             temperature: SculptPrompts.specTemperature,

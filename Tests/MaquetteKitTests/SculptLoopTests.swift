@@ -71,6 +71,25 @@ final class SculptLoopTests: XCTestCase {
         XCTAssertFalse(SculptLoop.isRetryableCodegenFailure(URLError(.timedOut)))
     }
 
+    func testAutopilotGateIsTheZeroValue() async throws {
+        // Autopilot must be indistinguishable from the pre-gate loop: spec
+        // passes through untouched and every decision field defers to the loop.
+        let spec = await SculptGate.autopilot.approveSpec(#"{"object":"box"}"#)
+        XCTAssertEqual(spec, #"{"object":"box"}"#)
+
+        let review = try JSONDecoder().decode(ReviewResult.self, from: Data(
+            #"{"overallScore":0.5,"critique":"x","action":"refine-code"}"#.utf8))
+        let decision = await SculptGate.autopilot.reviewCycle(SculptCycleSnapshot(
+            cycle: 1, review: review, challengerWon: nil, bestCycle: 1,
+            bestScore: 0.5, spec: spec, availableCycles: [1]))
+        guard case .auto = decision.action else {
+            return XCTFail("autopilot must not steer the loop")
+        }
+        XCTAssertNil(decision.critique)
+        XCTAssertNil(decision.forcedIncumbent)
+        XCTAssertNil(decision.spec)
+    }
+
     func testParsePairwiseVerdict() throws {
         let verdict = try SculptLoop.parsePairwise(
             #"Sure! {"winner": "B", "reason": "better silhouette"}"#)
