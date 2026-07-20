@@ -36,10 +36,14 @@ final class SculptViewModel {
     static let maxCycles = 5
 
     var phase: Phase = .idle
+    var photoURL: URL?
     var photoImage: NSImage?
     var subjectImage: NSImage?
     var currentStage = ""
+    var startedAt: Date?
     var cycles: [CycleRecord] = []
+    /// Set after a run that produced a best model: fuels "Keep refining".
+    var resumeSeed: SculptSeed?
 
     var accepted = false
     var finalScore: Double = 0
@@ -57,11 +61,13 @@ final class SculptViewModel {
     // MARK: - Running
 
     func run(photo: URL, coder: ModelSlotConfig, vision: ModelSlotConfig,
-             coderSeesRenders: Bool = true) {
+             coderSeesRenders: Bool = true, seed: SculptSeed? = nil) {
         guard phase != .running else { return }
         reset()
         phase = .running
+        photoURL = photo
         photoImage = NSImage(contentsOf: photo)
+        startedAt = Date()
         currentStage = "starting"
 
         runTask = Task { @MainActor in
@@ -77,7 +83,8 @@ final class SculptViewModel {
                                           coderSeesRenders: coderSeesRenders,
                                           outDir: outDir)
                 let loop = SculptLoop(config: config, harness: harness)
-                let outcome = try await loop.run(photoPath: photo.path) { [weak self] event in
+                let outcome = try await loop.run(photoPath: photo.path,
+                                                 seed: seed) { [weak self] event in
                     self?.apply(event)
                 }
                 finish(outcome)
@@ -107,9 +114,16 @@ final class SculptViewModel {
             }
             // The spec stage follows subject lift, so the cutout (or its
             // absence) is settled by the time this fires.
-            if name.hasPrefix("analyze"), let outDir {
+            if name.hasPrefix("analyze") || name.hasPrefix("resuming"), let outDir {
                 subjectImage = NSImage(contentsOf:
                     outDir.appendingPathComponent("subject.png"))
+            }
+            // The comparison sheet hits disk right before this stage: load it
+            // now so the live view shows the model before the verdict arrives.
+            if name.hasPrefix("export cycle"), let outDir,
+               let last = cycles.indices.last {
+                cycles[last].comparison = NSImage(contentsOf: outDir
+                    .appendingPathComponent("cycle-\(cycles[last].id)/comparison.png"))
             }
         case .cycleStart(let cycle):
             cycles.append(CycleRecord(id: cycle, stage: "codegen"))
@@ -146,15 +160,37 @@ final class SculptViewModel {
             scene = try? SCNScene(url: usdzURL)
             scene?.background.contents = NSColor(calibratedWhite: 0.12, alpha: 1.0)
         }
+        if let review = outcome.bestReview, !outcome.finalFactory.isEmpty, let outDir {
+            let sheetName = outcome.bestCycle == 0
+                ? "seed-comparison.png"
+                : "cycle-\(outcome.bestCycle ?? 0)/comparison.png"
+            if let sheet = try? Data(contentsOf: outDir.appendingPathComponent(sheetName)) {
+                resumeSeed = SculptSeed(spec: outcome.finalSpec,
+                                        code: outcome.finalFactory,
+                                        review: review, sheet: sheet)
+            }
+        }
         phase = .done
+    }
+
+    /// Resume from the best model: it becomes cycle 0's incumbent and new
+    /// cycles must beat it through the pairwise gate.
+    func keepRefining(coder: ModelSlotConfig, vision: ModelSlotConfig,
+                      coderSeesRenders: Bool) {
+        guard phase == .done, let photoURL, let resumeSeed else { return }
+        run(photo: photoURL, coder: coder, vision: vision,
+            coderSeesRenders: coderSeesRenders, seed: resumeSeed)
     }
 
     private func reset() {
         phase = .idle
+        photoURL = nil
         photoImage = nil
         subjectImage = nil
         currentStage = ""
+        startedAt = nil
         cycles = []
+        resumeSeed = nil
         accepted = false
         finalScore = 0
         bestCycle = nil

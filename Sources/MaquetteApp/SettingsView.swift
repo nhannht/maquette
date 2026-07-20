@@ -15,10 +15,12 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("Coder (writes the 3D factory code)") {
-                slotFields(endpoint: $settings.coderEndpoint,
+                SlotFields(endpoint: $settings.coderEndpoint,
                            model: $settings.coderModel,
                            key: $settings.coderKey,
-                           reasoning: $settings.coderReasoning)
+                           reasoning: $settings.coderReasoning,
+                           requireImage: false,
+                           hints: ["coder", "code"])
                 Toggle("Show the coder its renders", isOn: $settings.coderSeesRenders)
                 Text("Attaches the best cycle's comparison sheet to coding prompts. " +
                      "Needs a multimodal coder (gemini, kimi); turn off for text-only " +
@@ -28,10 +30,12 @@ struct SettingsView: View {
                 SlotTestButton(slot: .coder)
             }
             Section("Judge (scores renders against the photo)") {
-                slotFields(endpoint: $settings.visionEndpoint,
+                SlotFields(endpoint: $settings.visionEndpoint,
                            model: $settings.visionModel,
                            key: $settings.visionKey,
-                           reasoning: $settings.visionReasoning)
+                           reasoning: $settings.visionReasoning,
+                           requireImage: true,
+                           hints: [])
                 Text("Must accept images. The judge is only a default: every " +
                      "cycle's model is exported, you pick the winner by eye.")
                     .font(.caption)
@@ -43,17 +47,26 @@ struct SettingsView: View {
         .frame(width: 560)
         .padding()
     }
+}
 
-    /// Shared per-slot fields: provider preset up front for the simple path,
-    /// raw endpoint only when Custom, key optional, reasoning toggle.
-    @ViewBuilder
-    private func slotFields(endpoint: Binding<String>, model: Binding<String>,
-                            key: Binding<String>,
-                            reasoning: Binding<Bool>) -> some View {
+/// One slot's fields: provider preset for the simple path, raw endpoint only
+/// for Custom, model picker fed by the endpoint's own /models list, optional
+/// key, reasoning toggle.
+private struct SlotFields: View {
+    @Binding var endpoint: String
+    @Binding var model: String
+    @Binding var key: String
+    @Binding var reasoning: Bool
+    let requireImage: Bool
+    let hints: [String]
+
+    @State private var showPicker = false
+
+    var body: some View {
         let provider = Binding<SettingsStore.Provider>(
-            get: { .detect(endpoint.wrappedValue) },
+            get: { .detect(endpoint) },
             set: { newValue in
-                if let preset = newValue.endpoint { endpoint.wrappedValue = preset }
+                if let preset = newValue.endpoint { endpoint = preset }
             })
         Picker("Provider", selection: provider) {
             ForEach(SettingsStore.Provider.allCases) { candidate in
@@ -61,23 +74,134 @@ struct SettingsView: View {
             }
         }
         if provider.wrappedValue == .custom {
-            TextField("Endpoint", text: endpoint,
-                      prompt: Text("https://host/v1"))
+            TextField("Endpoint", text: $endpoint, prompt: Text("https://host/v1"))
         } else {
-            LabeledContent("Endpoint", value: endpoint.wrappedValue)
+            LabeledContent("Endpoint", value: endpoint)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        TextField("Model ID", text: model, prompt: Text(SettingsStore.defaultModel))
-        SecureField("API key", text: key,
+        HStack {
+            TextField("Model ID", text: $model,
+                      prompt: Text(SettingsStore.defaultModel))
+            Button("Choose...") { showPicker = true }
+        }
+        SecureField("API key", text: $key,
                     prompt: Text(provider.wrappedValue.isLocal
                                  ? "not needed for local endpoints" : "required"))
-        Toggle("Reasoning model", isOn: reasoning)
+        Toggle("Reasoning model", isOn: $reasoning)
         Text("Keep ON for models that think before answering (gemini, kimi " +
              "thinking, o-series, qwen -thinking): it caps thinking tokens so the " +
              "answer is not starved. Harmless if the model does not reason.")
             .font(.caption)
             .foregroundStyle(.secondary)
+        .sheet(isPresented: $showPicker) {
+            ModelPickerSheet(endpointString: endpoint, apiKey: key,
+                             requireImage: requireImage, hints: hints,
+                             selection: $model)
+        }
+    }
+}
+
+/// Lists the endpoint's own /models catalog (OpenRouter serves pricing and
+/// image support for free; local endpoints list plain ids). "Cheapest" is the
+/// one-click just-works default.
+private struct ModelPickerSheet: View {
+    let endpointString: String
+    let apiKey: String
+    let requireImage: Bool
+    let hints: [String]
+    @Binding var selection: String
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var models: [ModelInfo] = []
+    @State private var search = ""
+    @State private var failure: String?
+
+    private var filtered: [ModelInfo] {
+        search.isEmpty ? models : models.filter {
+            $0.id.localizedCaseInsensitiveContains(search)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                TextField("Search models", text: $search)
+                    .textFieldStyle(.roundedBorder)
+                Button("Cheapest\(requireImage ? " with vision" : "")") { pickCheapest() }
+                    .disabled(models.isEmpty)
+                    .help("Picks the lowest-priced model that fits this slot. " +
+                          "Free models win by costing zero.")
+                Button("Cancel") { dismiss() }
+            }
+            .padding(12)
+            Divider()
+            if let failure {
+                Text(failure)
+                    .foregroundStyle(.red)
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if models.isEmpty {
+                ProgressView("Fetching model list...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(filtered) { info in
+                    Button {
+                        selection = info.id
+                        dismiss()
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(info.id)
+                                Text(info.priceLabel)
+                                    .font(.caption)
+                                    .foregroundStyle(info.isFree ? .green : .secondary)
+                            }
+                            Spacer()
+                            if info.imageInput {
+                                Text("image")
+                                    .font(.caption)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(.quaternary, in: Capsule())
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .frame(width: 520, height: 440)
+        .task { await fetch() }
+    }
+
+    private func fetch() async {
+        guard let url = URL(string: endpointString) else {
+            failure = "bad endpoint: \(endpointString)"
+            return
+        }
+        do {
+            let fetched = try await ModelCatalog.fetch(endpoint: url, apiKey: apiKey)
+            models = fetched.sorted {
+                ($0.totalPrice ?? .infinity, $0.id) < ($1.totalPrice ?? .infinity, $1.id)
+            }
+            if models.isEmpty { failure = "endpoint returned an empty model list" }
+        } catch {
+            failure = "\(error)"
+        }
+    }
+
+    private func pickCheapest() {
+        // Local endpoints do not publish modalities; fall back to the overall
+        // cheapest rather than returning nothing for the judge slot.
+        let pick = ModelCatalog.cheapest(models, requireImage: requireImage,
+                                         preferIDContaining: hints)
+            ?? ModelCatalog.cheapest(models, requireImage: false,
+                                     preferIDContaining: hints)
+        guard let pick else { return }
+        selection = pick.id
+        dismiss()
     }
 }
 

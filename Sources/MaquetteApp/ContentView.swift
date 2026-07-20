@@ -143,15 +143,6 @@ struct ContentView: View {
                 ForEach(vm.cycles) { cycle in
                     cycleCard(cycle)
                 }
-                if vm.phase == .running {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text(vm.currentStage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 10)
-                }
             }
             .padding(12)
         }
@@ -258,13 +249,22 @@ struct ContentView: View {
                             .scaledToFit()
                             .frame(maxWidth: 640)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
-                        Text("latest comparison sheet: reference vs current model")
+                        Text("latest result: reference vs current model")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
                         ProgressView()
-                        Text(vm.currentStage)
-                            .foregroundStyle(.secondary)
+                            .controlSize(.large)
+                    }
+                    Text("Cycle \(vm.cycles.last?.id ?? 1) of up to \(SculptViewModel.maxCycles)")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    if let started = vm.startedAt {
+                        TimelineView(.periodic(from: started, by: 1)) { context in
+                            Text(Self.elapsed(from: started, to: context.date))
+                                .font(.title3.monospacedDigit())
+                                .foregroundStyle(.tertiary)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -295,7 +295,8 @@ struct ContentView: View {
                     .font(.title3.monospacedDigit().weight(.semibold))
                     .foregroundStyle(vm.accepted ? .green : .orange)
                 if let bestCycle = vm.bestCycle {
-                    Text("cycle \(bestCycle) of \(vm.cycles.count)")
+                    Text(bestCycle == 0 ? "previous best kept"
+                                        : "cycle \(bestCycle) of \(vm.cycles.count)")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -310,6 +311,15 @@ struct ContentView: View {
                 Button("Cancel") { vm.cancel() }
                     .keyboardShortcut(.cancelAction)
             } else {
+                if vm.phase == .done && vm.resumeSeed != nil {
+                    Button("Keep Refining") {
+                        guard let coder = coderConfig, let vision = visionConfig else { return }
+                        vm.keepRefining(coder: coder, vision: vision,
+                                        coderSeesRenders: settings.coderSeesRenders)
+                    }
+                    .help("Run more cycles: the current best model becomes the " +
+                          "incumbent and new attempts must beat it.")
+                }
                 Button("New Photo") { vm.newRun() }
                 Button("Quick Look") { vm.quickLook() }
                     .keyboardShortcut(.space, modifiers: [])
@@ -325,5 +335,10 @@ struct ContentView: View {
 
     private static func score(_ value: Double) -> String {
         String(format: "%.2f", value)
+    }
+
+    private static func elapsed(from start: Date, to now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(start)))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }
