@@ -49,9 +49,17 @@ public struct SculptOutcome {
     public let accepted: Bool
     public let finalScore: Double
     public let cyclesRun: Int
+    /// Which cycle produced the exported model, nil when none was reviewable.
+    public let bestCycle: Int?
     public let finalFactory: String
     public let coderUsage: SlotUsage
     public let visionUsage: SlotUsage
+    /// Written artifacts, nil when that format did not make it out.
+    public let glbPath: URL?
+    public let usdzPath: URL?
+    /// Why export produced less than both files. A failed export never fails
+    /// the run, but it is never silent either.
+    public let exportError: String?
 }
 
 public enum SculptEvent {
@@ -108,10 +116,15 @@ public final class SculptLoop {
         var spec = try await makeSpec(subjectPNG: subjectPNG, critique: nil, previousSpec: nil)
         try write(spec, name: "spec-1.json")
 
+        // `code` is transient: it is the previous-code hint fed to the next
+        // codegen call, and refine-spec deliberately clears it to force a fresh
+        // build. `best` is durable: the highest-scoring model the run actually
+        // produced. Keeping them separate is what stops a late regression from
+        // discarding a better earlier model.
         var code = ""
         var critique: String?
         var jsError: String?
-        var lastReview: ReviewResult?
+        var best: (cycle: Int, code: String, review: ReviewResult)?
         var cyclesRun = 0
 
         for cycle in 1...config.maxCycles {
@@ -163,7 +176,6 @@ public final class SculptLoop {
 
             onEvent(.stage("review (vision slot)"))
             let review = try await makeReview(sheetPNG: sheet)
-            lastReview = review
             let reviewJSON = try JSONSerialization.data(
                 withJSONObject: ["overallScore": review.overallScore,
                                  "layerScores": review.layerScores ?? [:],
@@ -172,6 +184,10 @@ public final class SculptLoop {
                 options: [.prettyPrinted, .sortedKeys])
             try write(reviewJSON, name: "cycle-\(cycle)/review.json")
             onEvent(.review(cycle: cycle, review))
+
+            if review.overallScore > (best?.review.overallScore ?? -1) {
+                best = (cycle, code, review)
+            }
 
             if review.overallScore >= config.threshold || review.action == "stop"
                 || review.action == "continue" {
@@ -189,14 +205,56 @@ public final class SculptLoop {
             }
         }
 
-        try write(code, name: "factory-final.js")
-        let score = lastReview?.overallScore ?? 0
+        // The run's result is its best model, not whatever the last cycle left
+        // behind: the loop can regress, and shipping a model worse than one it
+        // already built would throw away work the user paid for.
+        let finalCode = best?.code ?? ""
+        try write(finalCode, name: "factory-final.js")
+
+        let export = await exportFinal(code: finalCode, onEvent: onEvent)
+
+        let score = best?.review.overallScore ?? 0
         return SculptOutcome(accepted: score >= config.threshold,
                              finalScore: score,
                              cyclesRun: cyclesRun,
-                             finalFactory: code,
+                             bestCycle: best?.cycle,
+                             finalFactory: finalCode,
                              coderUsage: coderUsage,
-                             visionUsage: visionUsage)
+                             visionUsage: visionUsage,
+                             glbPath: export.glb,
+                             usdzPath: export.usdz,
+                             exportError: export.error)
+    }
+
+    // MARK: - Export
+
+    /// Write the final geometry as GLB and USDZ. Reloads the factory first: if
+    /// the last cycle crashed through every retry, the page still holds an
+    /// earlier cycle's model, and exporting that would ship geometry no one
+    /// scored. Export never throws - a run that produced a good model and a bad
+    /// file is still a run worth reporting.
+    private func exportFinal(code: String, onEvent: (SculptEvent) -> Void)
+        async -> (glb: URL?, usdz: URL?, error: String?) {
+        guard !code.isEmpty else {
+            let reason = "no cycle produced a reviewable model"
+            onEvent(.stage("export skipped: \(reason)"))
+            return (nil, nil, reason)
+        }
+        onEvent(.stage("export"))
+        var paths: [ExportFormat: URL] = [:]
+        var failure: String?
+        do {
+            try await harness.loadFactory(code)
+            for format in ExportFormat.allCases {
+                let data = try await harness.export(format)
+                try write(data, name: format.fileName)
+                paths[format] = config.outDir.appendingPathComponent(format.fileName)
+            }
+        } catch {
+            failure = String(describing: error)
+            onEvent(.stage("export failed: \(failure!)"))
+        }
+        return (paths[.glb], paths[.usdz], failure)
     }
 
     // MARK: - LLM stages

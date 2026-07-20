@@ -172,13 +172,19 @@ func sculpt(flags: Flags) async throws {
     print("""
 
     RESULT: \(outcome.accepted ? "ACCEPTED" : "NOT ACCEPTED") \
-    score \(String(format: "%.2f", outcome.finalScore)) after \(outcome.cyclesRun) cycle(s)
+    score \(String(format: "%.2f", outcome.finalScore)) \
+    from cycle \(outcome.bestCycle.map(String.init) ?? "-") of \(outcome.cyclesRun) run
     coder:  \(outcome.coderUsage.calls) calls, \(outcome.coderUsage.promptTokens) prompt + \
     \(outcome.coderUsage.completionTokens) completion tokens
     vision: \(outcome.visionUsage.calls) calls, \(outcome.visionUsage.promptTokens) prompt + \
     \(outcome.visionUsage.completionTokens) completion tokens
+    glb:    \(outcome.glbPath?.path ?? "none")
+    usdz:   \(outcome.usdzPath?.path ?? "none")
     artifacts: \(config.outDir.path)
     """)
+    if let exportError = outcome.exportError {
+        print("export problem: \(exportError)")
+    }
 }
 
 let flags = Flags(Array(CommandLine.arguments.dropFirst()))
