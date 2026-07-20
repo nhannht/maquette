@@ -14,10 +14,19 @@ against the photo, and the loop iterates to a threshold. Then GLB + USDZ export.
 ## Architecture (v1)
 
 photo -> subject lift (DepthCardKit, on-device)
-      -> analyze + spec (coder slot) -> Three.js factory code (coder slot)
+      -> recognize: suggested plain-language build brief (vision slot)
+         [GATE 1: user edits or accepts - intent beyond the photo enters here]
+      -> spec JSON compiled from photo + brief (vision slot, internal)
+      -> Three.js factory code (coder slot)
       -> render + screenshots (bundled three.js in WKWebView, fixed viewpoints)
-      -> comparison sheet -> score + critique (vision slot) -> loop (cap 4-6 cycles)
-      -> GLB (three.js exporter) + USDZ (DepthCardKit path) -> AR Quick Look
+      -> comparison sheet -> score + critique (vision slot) -> pairwise gate
+         [GATE 2: suggested next instruction, user edits or continues; skipped
+          when the run is ending or Settings > Auto-continue is on]
+      -> loop (cap 5 cycles)
+      -> GLB + USDZ (three.js exporter addons in the WKWebView) -> AR Quick Look
+
+The judge receives the spec: parts the brief adds beyond the photo (interior,
+open state) are scored against the spec, never punished against the photo.
 
 ## Hard rules
 
