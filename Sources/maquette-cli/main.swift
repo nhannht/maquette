@@ -18,6 +18,7 @@ func usage() -> Never {
     usage:
       maquette-cli set-key <coder|vision>
       maquette-cli render-test [--out DIR]
+      maquette-cli export <factory.js> [--out DIR]
       maquette-cli sculpt <photo> --out DIR
           [--coder-model ID] [--vision-model ID]
           [--coder-endpoint URL] [--vision-endpoint URL]
@@ -131,6 +132,25 @@ func renderTest(outDir: URL) async throws {
           + "\(ExportFormat.allCases.count) formats exported")
 }
 
+/// Export any saved factory (e.g. a non-winning cycle's factory.js from an old
+/// run) to GLB + USDZ. Local and free: no model slots, no tokens.
+@MainActor
+func exportFactory(flags: Flags) async throws {
+    guard let factoryPath = flags.positional.dropFirst().first else { usage() }
+    let code = try String(contentsOfFile: factoryPath, encoding: .utf8)
+    let outDir = URL(fileURLWithPath: flags.options["out"] ?? ".")
+    try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+    let harness = try await makeHarness()
+    defer { harness.shutdown() }
+    try await harness.loadFactory(code)
+    for format in ExportFormat.allCases {
+        let data = try await harness.export(format)
+        let path = outDir.appendingPathComponent(format.fileName)
+        try data.write(to: path)
+        print("\(path.path)  \(data.count) bytes")
+    }
+}
+
 @MainActor
 func sculpt(flags: Flags) async throws {
     guard let photoPath = flags.positional.dropFirst().first else { usage() }
@@ -212,12 +232,14 @@ case "set-key":
     guard flags.positional.count == 2 else { usage() }
     setKey(slot: flags.positional[1])
     exit(0)
-case "render-test", "sculpt":
+case "render-test", "sculpt", "export":
     Task { @MainActor in
         do {
             if command == "render-test" {
                 let out = URL(fileURLWithPath: flags.options["out"] ?? "render-test-out")
                 try await renderTest(outDir: out)
+            } else if command == "export" {
+                try await exportFactory(flags: flags)
             } else {
                 try await sculpt(flags: flags)
             }
