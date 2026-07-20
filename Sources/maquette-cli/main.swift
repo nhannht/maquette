@@ -107,7 +107,17 @@ func renderTest(outDir: URL) async throws {
         try png.write(to: path)
         print("\(path.path)  \(png.count) bytes")
     }
-    print("render-test OK: \(renders.count) viewpoints captured")
+    // The chest fixture carries three distinct materials (matte body, lighter
+    // lid, metallic ring), so exporting it here proves material fidelity
+    // end to end without spending a token.
+    for format in ExportFormat.allCases {
+        let data = try await harness.export(format)
+        let path = outDir.appendingPathComponent(format.fileName)
+        try data.write(to: path)
+        print("\(path.path)  \(data.count) bytes")
+    }
+    print("render-test OK: \(renders.count) viewpoints captured, "
+          + "\(ExportFormat.allCases.count) formats exported")
 }
 
 @MainActor

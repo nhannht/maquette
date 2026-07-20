@@ -7,12 +7,14 @@
   canvas { display: block; }
 </style>
 <script type="importmap">
-  { "imports": { "three": "./three.module.min.js" } }
+  { "imports": { "three": "./three.module.min.js", "three/addons/": "./" } }
 </script>
 </head>
 <body>
 <script type="module">
 import * as THREE from "three";
+import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+import { USDZExporter } from "three/addons/exporters/USDZExporter.js";
 
 const state = { ready: false, model: null };
 
@@ -53,6 +55,18 @@ function frame(viewName) {
   camera.lookAt(sphere.center);
 }
 
+// Binary export travels to Swift as base64 in the JSON status string. Chunked
+// because String.fromCharCode blows the argument limit on a whole mesh buffer.
+function toBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const CHUNK = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
 // Swift talks to this object via evaluateJavaScript. Every call returns a JSON
 // string {ok, error?} so errors travel back to the loop instead of dying here.
 window.maquette = {
@@ -67,6 +81,27 @@ window.maquette = {
       state.model = model;
       scene.add(model);
       return JSON.stringify({ ok: true });
+    } catch (err) {
+      const detail = err && err.stack ? String(err.stack) : String(err);
+      return JSON.stringify({ ok: false, error: detail.slice(0, 2000) });
+    }
+  },
+  // Async: Swift must reach this through callAsyncJavaScript, not
+  // evaluateJavaScript, which does not await the returned promise.
+  async exportModel(format) {
+    try {
+      if (!state.model) throw new Error("no model loaded");
+      // Exports read world matrices; the model may never have been framed.
+      state.model.updateMatrixWorld(true);
+      let buffer;
+      if (format === "glb") {
+        buffer = await new GLTFExporter().parseAsync(state.model, { binary: true });
+      } else if (format === "usdz") {
+        buffer = await new USDZExporter().parseAsync(state.model);
+      } else {
+        throw new Error("unknown format: " + format);
+      }
+      return JSON.stringify({ ok: true, data: toBase64(buffer) });
     } catch (err) {
       const detail = err && err.stack ? String(err.stack) : String(err);
       return JSON.stringify({ ok: false, error: detail.slice(0, 2000) });

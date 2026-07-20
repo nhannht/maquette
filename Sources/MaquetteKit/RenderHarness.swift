@@ -16,6 +16,7 @@ public enum RenderHarnessError: Error, CustomStringConvertible {
     case factory(String)
     case snapshotFailed(String)
     case timeout(String)
+    case exportFailed(String)
 
     public var description: String {
         switch self {
@@ -24,6 +25,7 @@ public enum RenderHarnessError: Error, CustomStringConvertible {
         case .factory(let detail): return "factory code failed: \(detail)"
         case .snapshotFailed(let detail): return "snapshot failed: \(detail)"
         case .timeout(let detail): return "timeout: \(detail)"
+        case .exportFailed(let detail): return "export failed: \(detail)"
         }
     }
 }
@@ -137,6 +139,20 @@ public final class RenderHarness {
 
     // MARK: - Plumbing
 
+    /// Await a promise-returning page function. `evalJS` cannot: evaluateJavaScript
+    /// hands back the Promise object itself instead of its resolved value.
+    func callAsyncJS(_ body: String) async throws -> Any? {
+        try await withCheckedThrowingContinuation { cont in
+            webView.callAsyncJavaScript(body, arguments: [:], in: nil,
+                                        in: .page) { result in
+                switch result {
+                case .success(let value): cont.resume(returning: value)
+                case .failure(let error): cont.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     private func evalJS(_ script: String) async throws -> Any? {
         try await withCheckedThrowingContinuation { cont in
             webView.evaluateJavaScript(script) { result, error in
@@ -149,7 +165,10 @@ public final class RenderHarness {
         }
     }
 
-    private static func check(_ result: Any?, wrap: (String) -> RenderHarnessError) throws {
+    /// Returns the decoded status object so callers that carry a payload
+    /// (export) can read their own fields out of it.
+    @discardableResult
+    static func check(_ result: Any?, wrap: (String) -> RenderHarnessError) throws -> [String: Any] {
         guard let json = result as? String,
               let data = json.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -159,5 +178,6 @@ public final class RenderHarness {
         if !ok {
             throw wrap(obj["error"] as? String ?? "unknown page error")
         }
+        return obj
     }
 }
