@@ -182,17 +182,28 @@ public final class SculptLoop {
                     layerScores: inheritsIncumbent ? best?.review.layerScores : nil,
                     rendersAttached: inheritsIncumbent && config.coderSeesRenders,
                     regressed: inheritsIncumbent && lastRegressed)))
-                let result = try await config.coder.client.completeOnce(
-                    model: config.coder.modelID,
-                    messages: [
-                        ChatMessage(role: .system, text: SculptPrompts.codegenSystem),
-                        ChatMessage(role: .user, content: userContent),
-                    ],
-                    temperature: SculptPrompts.codegenTemperature,
-                    maxTokens: SculptPrompts.codegenMaxTokens,
-                    reasoningMaxTokens: SculptPrompts.codegenReasoningMaxTokens)
-                coderUsage.add(result.usage)
-                code = try Self.extractCode(result.text)
+                // Truncation and code-less responses are attempt failures like
+                // JS crashes: retry within the lane instead of killing a run
+                // that has already paid for earlier cycles. Only the last
+                // attempt's failure propagates.
+                do {
+                    let result = try await config.coder.client.completeOnce(
+                        model: config.coder.modelID,
+                        messages: [
+                            ChatMessage(role: .system, text: SculptPrompts.codegenSystem),
+                            ChatMessage(role: .user, content: userContent),
+                        ],
+                        temperature: SculptPrompts.codegenTemperature,
+                        maxTokens: SculptPrompts.codegenMaxTokens,
+                        reasoningMaxTokens: SculptPrompts.codegenReasoningMaxTokens)
+                    coderUsage.add(result.usage)
+                    code = try Self.extractCode(result.text)
+                } catch let error where Self.isRetryableCodegenFailure(error) {
+                    guard attempt < config.codeErrorRetries else { throw error }
+                    onEvent(.stage("codegen failed (\(error)), retrying"))
+                    try write("\(error)", name: "cycle-\(cycle)/codegen-error-\(attempt).txt")
+                    continue
+                }
                 try write(code, name: "cycle-\(cycle)/factory\(attempt > 0 ? "-fix\(attempt)" : "").js")
 
                 onEvent(.stage("render"))
@@ -388,6 +399,16 @@ public final class SculptLoop {
         let verdict = try Self.parsePairwise(result.text)
         let firstWon = verdict.winner == "A"
         return (incumbentFirst ? !firstWon : firstWon, verdict.reason)
+    }
+
+    /// Attempt-scoped codegen failures: the model hit its token budget before
+    /// emitting code, or answered with prose instead of code. Both are
+    /// transient sampling outcomes worth another attempt; everything else
+    /// (auth, network, bad request) aborts the run.
+    nonisolated static func isRetryableCodegenFailure(_ error: Error) -> Bool {
+        if case ChatClientError.truncated = error { return true }
+        if case SculptLoopError.noCode = error { return true }
+        return false
     }
 
     // MARK: - Text extraction (LLMs love fences no matter what the prompt says)

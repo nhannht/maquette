@@ -52,7 +52,11 @@ public enum SculptPrompts {
     // MARK: - Stage 2: codegen (coder slot)
 
     public static let codegenTemperature = 0.4
-    public static let codegenMaxTokens = 8192
+    /// Shared budget for reasoning + code. The reasoning cap below is advisory:
+    /// Gemini overshoots it up to ~4x (observed 7861 spent on a 2048 ask when an
+    /// image is attached), so the total must absorb the worst overshoot and
+    /// still leave room for a full factory (~3k tokens).
+    public static let codegenMaxTokens = 16384
     public static let codegenReasoningMaxTokens = 2048
 
     public static let codegenSystem = """

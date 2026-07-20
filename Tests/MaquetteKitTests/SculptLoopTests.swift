@@ -54,6 +54,16 @@ final class SculptLoopTests: XCTestCase {
         XCTAssertEqual(try SculptLoop.extractCode(raw), raw)
     }
 
+    func testRetryableCodegenFailures() {
+        XCTAssertTrue(SculptLoop.isRetryableCodegenFailure(
+            ChatClientError.truncated("reasoning ate the budget")))
+        XCTAssertTrue(SculptLoop.isRetryableCodegenFailure(
+            SculptLoopError.noCode("prose")))
+        XCTAssertFalse(SculptLoop.isRetryableCodegenFailure(
+            SculptLoopError.badReviewJSON("x")))
+        XCTAssertFalse(SculptLoop.isRetryableCodegenFailure(URLError(.timedOut)))
+    }
+
     func testParsePairwiseVerdict() throws {
         let verdict = try SculptLoop.parsePairwise(
             #"Sure! {"winner": "B", "reason": "better silhouette"}"#)
