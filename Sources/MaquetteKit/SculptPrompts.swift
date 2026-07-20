@@ -11,6 +11,10 @@ public enum SculptPrompts {
 
     public static let specTemperature = 0.3
     public static let specMaxTokens = 4096
+    /// Reasoning models spend max_tokens on thinking before any output; uncapped,
+    /// thinking starves the answer entirely (IMG3D-12: 7865 of 8188 tokens).
+    /// Caps are advisory upstream (Gemini overshoots ~2x) but leave enough room.
+    public static let specReasoningMaxTokens = 1024
 
     public static let specSystem = """
     You are a 3D reconstruction analyst. You receive one photo of a single object \
@@ -49,6 +53,7 @@ public enum SculptPrompts {
 
     public static let codegenTemperature = 0.4
     public static let codegenMaxTokens = 8192
+    public static let codegenReasoningMaxTokens = 2048
 
     public static let codegenSystem = """
     You are a senior three.js procedural modeler (three r185). You receive a build \
@@ -103,6 +108,7 @@ public enum SculptPrompts {
 
     public static let reviewTemperature = 0.2
     public static let reviewMaxTokens = 2048
+    public static let reviewReasoningMaxTokens = 512
 
     public static let reviewSystem = """
     You are a strict 3D visual QA judge. You receive one comparison sheet: the \

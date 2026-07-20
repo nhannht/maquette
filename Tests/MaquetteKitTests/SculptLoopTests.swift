@@ -30,7 +30,7 @@ final class SculptLoopTests: XCTestCase {
         ```
         Done.
         """
-        XCTAssertEqual(SculptLoop.extractCode(text),
+        XCTAssertEqual(try SculptLoop.extractCode(text),
                        "function buildModel(THREE) { return new THREE.Group(); }")
     }
 
@@ -46,11 +46,25 @@ final class SculptLoopTests: XCTestCase {
         }
         ```
         """
-        XCTAssertTrue(SculptLoop.extractCode(text).contains("const g"))
+        XCTAssertTrue(try SculptLoop.extractCode(text).contains("const g"))
     }
 
     func testExtractCodeUnfenced() {
         let raw = "function buildModel(THREE) { return new THREE.Group(); }"
-        XCTAssertEqual(SculptLoop.extractCode(raw), raw)
+        XCTAssertEqual(try SculptLoop.extractCode(raw), raw)
+    }
+
+    func testExtractCodeProseThrows() {
+        // Leaked reasoning prose, as observed in the IMG3D-12 gemini run:
+        // no fence, no buildModel. Must never reach new Function.
+        let prose = """
+        *   Front is `angle = Math.PI / 2`.
+            *   Wait, the groove should look like an indentation.
+        """
+        XCTAssertThrowsError(try SculptLoop.extractCode(prose)) { error in
+            guard case SculptLoopError.noCode = error else {
+                return XCTFail("expected .noCode, got \(error)")
+            }
+        }
     }
 }

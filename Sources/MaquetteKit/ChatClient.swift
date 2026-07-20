@@ -41,11 +41,13 @@ public struct ChatResult {
 public enum ChatClientError: Error, CustomStringConvertible {
     case http(status: Int, body: String)
     case malformedResponse(String)
+    case truncated(String)
 
     public var description: String {
         switch self {
         case .http(let status, let body): return "HTTP \(status): \(body.prefix(300))"
         case .malformedResponse(let detail): return "malformed response: \(detail)"
+        case .truncated(let detail): return "completion truncated: \(detail)"
         }
     }
 }
@@ -62,13 +64,16 @@ public struct ChatClient {
     /// Stream assistant text deltas for a chat completion.
     public func stream(model: String, messages: [ChatMessage],
                        temperature: Double? = nil,
-                       maxTokens: Int? = nil) -> AsyncThrowingStream<String, Error> {
+                       maxTokens: Int? = nil,
+                       reasoningMaxTokens: Int? = nil) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     let request = try makeRequest(model: model, messages: messages,
                                                   temperature: temperature,
-                                                  maxTokens: maxTokens, stream: true)
+                                                  maxTokens: maxTokens,
+                                                  reasoningMaxTokens: reasoningMaxTokens,
+                                                  stream: true)
                     let (bytes, response) = try await URLSession.shared.bytes(for: request)
                     guard let http = response as? HTTPURLResponse else {
                         throw ChatClientError.malformedResponse("not an HTTP response")
@@ -98,10 +103,13 @@ public struct ChatClient {
     /// is the only portable way to get token counts for cost accounting.
     public func completeOnce(model: String, messages: [ChatMessage],
                              temperature: Double? = nil,
-                             maxTokens: Int? = nil) async throws -> ChatResult {
+                             maxTokens: Int? = nil,
+                             reasoningMaxTokens: Int? = nil) async throws -> ChatResult {
         let request = try makeRequest(model: model, messages: messages,
                                       temperature: temperature,
-                                      maxTokens: maxTokens, stream: false)
+                                      maxTokens: maxTokens,
+                                      reasoningMaxTokens: reasoningMaxTokens,
+                                      stream: false)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw ChatClientError.malformedResponse("not an HTTP response")
@@ -110,11 +118,37 @@ public struct ChatClient {
             throw ChatClientError.http(status: http.statusCode,
                                        body: String(data: data, encoding: .utf8) ?? "")
         }
+        return try Self.parseCompletion(data)
+    }
+
+    /// Decode a non-streamed completion body. A finish_reason of "length" is a
+    /// hard error, not a result: reasoning models share max_tokens between
+    /// thinking and output, so a length-stopped body is either cut-off code or
+    /// leaked reasoning prose - never something to hand downstream (IMG3D-12).
+    /// The message's `reasoning` field is deliberately never read as content.
+    static func parseCompletion(_ data: Data) throws -> ChatResult {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = obj["choices"] as? [[String: Any]],
-              let message = choices.first?["message"] as? [String: Any] else {
+              let choice = choices.first,
+              let message = choice["message"] as? [String: Any] else {
             throw ChatClientError.malformedResponse(String(data: data, encoding: .utf8)?
                 .prefix(300).description ?? "unreadable body")
+        }
+        var usage: ChatUsage?
+        var reasoningTokens: Int?
+        if let u = obj["usage"] as? [String: Any] {
+            usage = ChatUsage(promptTokens: u["prompt_tokens"] as? Int ?? 0,
+                              completionTokens: u["completion_tokens"] as? Int ?? 0)
+            let details = u["completion_tokens_details"] as? [String: Any]
+            reasoningTokens = details?["reasoning_tokens"] as? Int
+        }
+        if choice["finish_reason"] as? String == "length" {
+            var detail = "hit max_tokens before completing"
+            if let usage, let reasoningTokens {
+                detail += " (reasoning consumed \(reasoningTokens) of "
+                    + "\(usage.completionTokens) completion tokens)"
+            }
+            throw ChatClientError.truncated(detail)
         }
         let text: String
         if let content = message["content"] as? String {
@@ -124,21 +158,18 @@ public struct ChatClient {
         } else {
             throw ChatClientError.malformedResponse("message has no content")
         }
-        var usage: ChatUsage?
-        if let u = obj["usage"] as? [String: Any] {
-            usage = ChatUsage(promptTokens: u["prompt_tokens"] as? Int ?? 0,
-                              completionTokens: u["completion_tokens"] as? Int ?? 0)
-        }
         return ChatResult(text: text, usage: usage)
     }
 
     /// Convenience: run a completion to the end and return the full text.
     public func complete(model: String, messages: [ChatMessage],
                          temperature: Double? = nil,
-                         maxTokens: Int? = nil) async throws -> String {
+                         maxTokens: Int? = nil,
+                         reasoningMaxTokens: Int? = nil) async throws -> String {
         var out = ""
         for try await delta in stream(model: model, messages: messages,
-                                      temperature: temperature, maxTokens: maxTokens) {
+                                      temperature: temperature, maxTokens: maxTokens,
+                                      reasoningMaxTokens: reasoningMaxTokens) {
             out += delta
         }
         return out
@@ -166,9 +197,10 @@ public struct ChatClient {
         return SSEDelta(text: delta?["content"] as? String, done: false)
     }
 
-    private func makeRequest(model: String, messages: [ChatMessage],
-                             temperature: Double?, maxTokens: Int?,
-                             stream: Bool) throws -> URLRequest {
+    func makeRequest(model: String, messages: [ChatMessage],
+                     temperature: Double?, maxTokens: Int?,
+                     reasoningMaxTokens: Int?,
+                     stream: Bool) throws -> URLRequest {
         var body: [String: Any] = [
             "model": model,
             "messages": messages.map(Self.encode(message:)),
@@ -176,6 +208,14 @@ public struct ChatClient {
         ]
         if let temperature { body["temperature"] = temperature }
         if let maxTokens { body["max_tokens"] = maxTokens }
+        // OpenRouter's normalized reasoning control. A token cap is the only
+        // variant that actually protects the output budget: exclude:true still
+        // burns the budget and leaks thinking prose into content (IMG3D-12
+        // diagnostic). Providers treat the cap as advisory (Gemini overshoots
+        // ~2x), so pair it with headroom in max_tokens.
+        if let reasoningMaxTokens {
+            body["reasoning"] = ["max_tokens": reasoningMaxTokens]
+        }
 
         var request = URLRequest(url: endpoint.appending(path: "chat/completions"))
         request.httpMethod = "POST"

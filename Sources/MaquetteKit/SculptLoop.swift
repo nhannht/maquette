@@ -71,11 +71,14 @@ public enum SculptEvent {
 public enum SculptLoopError: Error, CustomStringConvertible {
     case badReviewJSON(String)
     case noSpec(String)
+    case noCode(String)
 
     public var description: String {
         switch self {
         case .badReviewJSON(let detail): return "vision review was not valid JSON: \(detail)"
         case .noSpec(let detail): return "spec stage returned no JSON: \(detail)"
+        case .noCode(let detail):
+            return "coder response contains no code (no fence, no buildModel): \(detail)"
         }
     }
 }
@@ -146,9 +149,10 @@ public final class SculptLoop {
                             critique: critique, jsError: jsError)),
                     ],
                     temperature: SculptPrompts.codegenTemperature,
-                    maxTokens: SculptPrompts.codegenMaxTokens)
+                    maxTokens: SculptPrompts.codegenMaxTokens,
+                    reasoningMaxTokens: SculptPrompts.codegenReasoningMaxTokens)
                 coderUsage.add(result.usage)
-                code = Self.extractCode(result.text)
+                code = try Self.extractCode(result.text)
                 try write(code, name: "cycle-\(cycle)/factory\(attempt > 0 ? "-fix\(attempt)" : "").js")
 
                 onEvent(.stage("render"))
@@ -271,7 +275,8 @@ public final class SculptLoop {
                 ]),
             ],
             temperature: SculptPrompts.specTemperature,
-            maxTokens: SculptPrompts.specMaxTokens)
+            maxTokens: SculptPrompts.specMaxTokens,
+            reasoningMaxTokens: SculptPrompts.specReasoningMaxTokens)
         visionUsage.add(result.usage)
         guard let json = Self.extractJSON(result.text) else {
             throw SculptLoopError.noSpec(String(result.text.prefix(300)))
@@ -290,7 +295,8 @@ public final class SculptLoop {
                 ]),
             ],
             temperature: SculptPrompts.reviewTemperature,
-            maxTokens: SculptPrompts.reviewMaxTokens)
+            maxTokens: SculptPrompts.reviewMaxTokens,
+            reasoningMaxTokens: SculptPrompts.reviewReasoningMaxTokens)
         visionUsage.add(result.usage)
         guard let json = Self.extractJSON(result.text),
               let data = json.data(using: .utf8),
@@ -311,11 +317,15 @@ public final class SculptLoop {
         return String(text[start...end])
     }
 
-    nonisolated static func extractCode(_ text: String) -> String {
+    nonisolated static func extractCode(_ text: String) throws -> String {
         if let fenced = extractFenced(text, languages: ["javascript", "js", ""]) {
             return fenced
         }
-        return text
+        // No fence is fine only when the body is plainly the code itself.
+        // Anything else (reasoning prose, apologies, half sentences) is a
+        // transport failure to surface, never something for new Function.
+        if text.contains("function buildModel") { return text }
+        throw SculptLoopError.noCode(String(text.prefix(300)))
     }
 
     /// Content of the largest fenced block matching one of the language tags.
