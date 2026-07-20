@@ -35,14 +35,12 @@ final class SculptViewModel {
     static let threshold = 0.7
     static let maxCycles = 5
 
-    /// UI state while the loop waits at the per-cycle gate (coach mode).
+    /// UI state while the loop waits between cycles for the user's go-ahead.
     struct CycleGateState {
         let snapshot: SculptCycleSnapshot
-        /// Editable: what the coder will be told next cycle. Prefilled with
-        /// the judge's critique; only a changed text is sent as an override.
+        /// The suggested next instruction for the coder (the judge's
+        /// critique). Editable; only a changed text is sent as an override.
         var critiqueDraft: String
-        /// Editable via the spec sheet; only a changed text replaces the spec.
-        var specDraft: String
         /// Which cycle's model carries forward. Prefilled with the pairwise
         /// gate's pick; the user can point it at any reviewed cycle.
         var selectedBase: Int
@@ -57,21 +55,15 @@ final class SculptViewModel {
     var cycles: [CycleRecord] = []
     /// Set after a run that produced a best model: fuels "Keep refining".
     var resumeSeed: SculptSeed?
-    /// Non-nil while the loop waits for the user to approve the spec; bound
-    /// to the spec editor.
-    var pendingSpec: String?
-    /// Non-nil while the loop waits at a cycle gate.
+    /// Non-nil while the loop waits for the user to confirm the suggested
+    /// build brief; bound to the brief editor.
+    var pendingBrief: String?
+    /// Non-nil while the loop waits between cycles.
     var cycleGate: CycleGateState?
-    /// "Use as base" clicked during autopilot; consumed at the next cycle
-    /// boundary without pausing the loop.
-    var pendingBaseOverride: Int?
 
-    private var specContinuation: CheckedContinuation<String, Never>?
+    private var briefContinuation: CheckedContinuation<String, Never>?
     private var cycleContinuation: CheckedContinuation<SculptCycleDecision, Never>?
-    private var coachMode: () -> Bool = { false }
-    /// Intent of the current run, kept so "Keep Refining" preserves it (a
-    /// mid-run refine-spec call still needs it).
-    private var runIntent: String?
+    private var autoContinue: () -> Bool = { false }
 
     var accepted = false
     var finalScore: Double = 0
@@ -89,8 +81,8 @@ final class SculptViewModel {
     // MARK: - Running
 
     func run(photo: URL, coder: ModelSlotConfig, vision: ModelSlotConfig,
-             coderSeesRenders: Bool = true, intent: String? = nil,
-             coachMode: @escaping () -> Bool = { false },
+             coderSeesRenders: Bool = true,
+             autoContinue: @escaping () -> Bool = { false },
              seed: SculptSeed? = nil) {
         guard phase != .running else { return }
         reset()
@@ -99,8 +91,7 @@ final class SculptViewModel {
         photoImage = NSImage(contentsOf: photo)
         startedAt = Date()
         currentStage = "starting"
-        self.coachMode = coachMode
-        runIntent = intent?.isEmpty == true ? nil : intent
+        self.autoContinue = autoContinue
 
         runTask = Task { @MainActor in
             let harness = RenderHarness()
@@ -113,7 +104,6 @@ final class SculptViewModel {
                                           threshold: Self.threshold,
                                           maxCycles: Self.maxCycles,
                                           coderSeesRenders: coderSeesRenders,
-                                          userIntent: runIntent,
                                           outDir: outDir)
                 let loop = SculptLoop(config: config, harness: harness)
                 let outcome = try await loop.run(photoPath: photo.path,
@@ -137,10 +127,10 @@ final class SculptViewModel {
     /// gate must be resumed first or the cancel would never be seen.
     func cancel() {
         currentStage = "cancelling after the current call..."
-        if let cont = specContinuation {
-            specContinuation = nil
-            let draft = pendingSpec ?? ""
-            pendingSpec = nil
+        if let cont = briefContinuation {
+            briefContinuation = nil
+            let draft = pendingBrief ?? ""
+            pendingBrief = nil
             cont.resume(returning: draft)
         }
         if let cont = cycleContinuation {
@@ -153,73 +143,73 @@ final class SculptViewModel {
 
     // MARK: - Human gates
 
-    /// The loop's two pause points. Autopilot cycles never suspend: they just
-    /// consume a pending "Use as base" click. Coach mode parks the loop on a
-    /// continuation until the user decides.
+    /// The loop's two pause points. The brief gate always waits: the user
+    /// confirms or edits the suggested prompt before tokens are spent. The
+    /// cycle gate waits only when there is a next cycle to steer and
+    /// auto-continue is off.
     private func makeGate() -> SculptGate {
         SculptGate(
-            approveSpec: { [weak self] draft in
+            approveBrief: { [weak self] draft in
                 guard let self else { return draft }
                 return await withCheckedContinuation { cont in
-                    self.currentStage = "review the spec"
-                    self.pendingSpec = draft
-                    self.specContinuation = cont
+                    self.currentStage = "confirm the brief"
+                    self.pendingBrief = draft
+                    self.briefContinuation = cont
                 }
             },
             reviewCycle: { [weak self] snapshot in
                 guard let self else { return SculptCycleDecision() }
-                guard self.coachMode() else {
-                    let forced = self.pendingBaseOverride
-                    self.pendingBaseOverride = nil
-                    return SculptCycleDecision(
-                        forcedIncumbent: forced == snapshot.bestCycle ? nil : forced)
+                // No pause when the loop is about to stop anyway (accepted,
+                // judge says stop, or cycle cap reached) - the result screen
+                // takes over, with Keep Refining for more.
+                let wouldStop = snapshot.bestScore >= Self.threshold
+                    || snapshot.review.action == "stop"
+                    || snapshot.review.action == "continue"
+                    || snapshot.cycle >= Self.maxCycles
+                guard !wouldStop, !self.autoContinue() else {
+                    return SculptCycleDecision()
                 }
                 return await withCheckedContinuation { cont in
-                    self.currentStage = "paused - your call"
+                    self.currentStage = "waiting for you"
                     self.cycleGate = CycleGateState(
                         snapshot: snapshot,
                         critiqueDraft: snapshot.review.critique,
-                        specDraft: snapshot.spec,
-                        selectedBase: self.pendingBaseOverride ?? snapshot.bestCycle)
-                    self.pendingBaseOverride = nil
+                        selectedBase: snapshot.bestCycle)
                     self.cycleContinuation = cont
                 }
             })
     }
 
-    /// The user approved (possibly edited) the spec: cycles start.
-    func approveSpec() {
-        guard let cont = specContinuation else { return }
-        let spec = pendingSpec ?? ""
-        specContinuation = nil
-        pendingSpec = nil
-        currentStage = "starting cycles"
-        cont.resume(returning: spec)
+    /// The user confirmed (possibly edited) the brief: the spec compiles and
+    /// cycles start.
+    func approveBrief() {
+        guard let cont = briefContinuation else { return }
+        let brief = pendingBrief ?? ""
+        briefContinuation = nil
+        pendingBrief = nil
+        currentStage = "building the spec"
+        cont.resume(returning: brief)
     }
 
-    /// The user decided at a cycle gate. Only fields they actually changed
-    /// become overrides; untouched drafts defer to the loop.
+    /// The user decided between cycles. Only what they actually changed
+    /// becomes an override; untouched drafts defer to the loop.
     func resumeCycle(accept: Bool) {
         guard let gate = cycleGate, let cont = cycleContinuation else { return }
         cycleContinuation = nil
         cycleGate = nil
         let critique = gate.critiqueDraft == gate.snapshot.review.critique
             ? nil : gate.critiqueDraft
-        let spec = gate.specDraft == gate.snapshot.spec ? nil : gate.specDraft
         let forced = gate.selectedBase == gate.snapshot.bestCycle
             ? nil : gate.selectedBase
         cont.resume(returning: SculptCycleDecision(
             action: accept ? .acceptNow : .continueRun,
-            critique: critique, forcedIncumbent: forced, spec: spec))
+            critique: critique, forcedIncumbent: forced))
     }
 
-    /// "Use as base" during autopilot: no pause, applied at the next boundary.
+    /// The human eye outranks the pairwise judge: while paused, any reviewed
+    /// cycle can be picked as the base to carry forward.
     func overrideBase(_ cycle: Int) {
-        if cycleGate != nil {
-            cycleGate?.selectedBase = cycle
-        } else {
-            pendingBaseOverride = cycle
-        }
+        cycleGate?.selectedBase = cycle
     }
 
     private func apply(_ event: SculptEvent) {
@@ -229,9 +219,10 @@ final class SculptViewModel {
             if !cycles.isEmpty {
                 cycles[cycles.count - 1].stage = name
             }
-            // The spec stage follows subject lift, so the cutout (or its
-            // absence) is settled by the time this fires.
-            if name.hasPrefix("analyze") || name.hasPrefix("resuming"), let outDir {
+            // Recognize follows subject lift, so the cutout (or its absence)
+            // is settled by the time any of these fire.
+            if name.hasPrefix("recognize") || name.hasPrefix("analyze")
+                || name.hasPrefix("resuming"), let outDir {
                 subjectImage = NSImage(contentsOf:
                     outDir.appendingPathComponent("subject.png"))
             }
@@ -296,8 +287,8 @@ final class SculptViewModel {
                       coderSeesRenders: Bool) {
         guard phase == .done, let photoURL, let resumeSeed else { return }
         run(photo: photoURL, coder: coder, vision: vision,
-            coderSeesRenders: coderSeesRenders, intent: runIntent,
-            coachMode: coachMode, seed: resumeSeed)
+            coderSeesRenders: coderSeesRenders, autoContinue: autoContinue,
+            seed: resumeSeed)
     }
 
     private func reset() {
@@ -309,10 +300,9 @@ final class SculptViewModel {
         startedAt = nil
         cycles = []
         resumeSeed = nil
-        pendingSpec = nil
+        pendingBrief = nil
         cycleGate = nil
-        pendingBaseOverride = nil
-        specContinuation = nil
+        briefContinuation = nil
         cycleContinuation = nil
         accepted = false
         finalScore = 0

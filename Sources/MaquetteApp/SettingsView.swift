@@ -29,6 +29,14 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                 SlotTestButton(slot: .coder)
             }
+            Section("Loop") {
+                Toggle("Auto-continue cycles", isOn: $settings.autoContinue)
+                Text("By default the app pauses between cycles with the suggested " +
+                     "next instruction so you can edit it or just continue. Turn " +
+                     "this on to let the judge drive until it accepts.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("Judge (scores renders against the photo)") {
                 SlotFields(endpoint: $settings.visionEndpoint,
                            model: $settings.visionModel,

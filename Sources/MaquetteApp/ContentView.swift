@@ -8,8 +8,6 @@ struct ContentView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(\.openSettings) private var openSettings
     @State private var vm = SculptViewModel()
-    @State private var intentText = ""
-    @State private var showSpecEditor = false
 
     private var coderConfig: ModelSlotConfig? { settings.config(for: .coder) }
     private var visionConfig: ModelSlotConfig? { settings.config(for: .vision) }
@@ -60,15 +58,13 @@ struct ContentView: View {
         }
         vm.run(photo: url, coder: coder, vision: vision,
                coderSeesRenders: settings.coderSeesRenders,
-               intent: intentText,
-               coachMode: { [weak settings] in settings?.coachMode ?? false })
+               autoContinue: { [weak settings] in settings?.autoContinue ?? false })
     }
 
     // MARK: - Idle
 
     private var dropZone: some View {
-        @Bindable var settings = settings
-        return VStack(spacing: 16) {
+        VStack(spacing: 16) {
             Image(systemName: "scale.3d")
                 .font(.system(size: 56, weight: .thin))
                 .foregroundStyle(.secondary)
@@ -81,25 +77,15 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 460)
-            TextField("Anything the photo can't show? e.g. \"the box opens, a pair " +
-                      "of earbuds sits inside\" (optional)",
-                      text: $intentText, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(2...4)
-                .frame(maxWidth: 460)
             Button("Open Photo...") { openPhotoPanel() }
                 .keyboardShortcut("o")
                 .disabled(!configured)
-            Toggle("Pause between cycles so I can steer (coach mode)",
-                   isOn: $settings.coachMode)
-                .toggleStyle(.checkbox)
             Text("Up to \(SculptViewModel.maxCycles) cycles, accept at score " +
                  "\(Self.score(SculptViewModel.threshold)). \(slotLine)")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 24)
     }
 
     private var slotLine: String {
@@ -202,11 +188,11 @@ struct ContentView: View {
                             .buttonStyle(.link)
                             .font(.caption)
                     }
-                    // The human eye outranks the pairwise judge: any reviewed
-                    // cycle can be forced to carry forward as the base.
-                    if vm.phase == .running {
-                        if cycle.id == (vm.cycleGate?.selectedBase ?? vm.pendingBaseOverride) {
-                            Text("base for next cycle")
+                    // Only while the run waits between cycles: the human eye
+                    // outranks the pairwise judge on which model carries on.
+                    if vm.cycleGate != nil {
+                        if cycle.id == vm.cycleGate?.selectedBase {
+                            Text("base")
                                 .font(.caption.weight(.semibold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
@@ -215,8 +201,8 @@ struct ContentView: View {
                             Button("Use as base") { vm.overrideBase(cycle.id) }
                                 .buttonStyle(.link)
                                 .font(.caption)
-                                .help("Carry this cycle's model forward as the " +
-                                      "incumbent, overriding the judge's pick.")
+                                .help("Carry this cycle's model forward, " +
+                                      "overriding the judge's pick.")
                         }
                     }
                 }
@@ -276,8 +262,8 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if vm.phase == .running {
-                if vm.pendingSpec != nil {
-                    specGate
+                if vm.pendingBrief != nil {
+                    briefGate
                 } else {
                     VStack(spacing: 12) {
                         if let latest = vm.cycles.last(where: { $0.comparison != nil })?.comparison {
@@ -329,87 +315,56 @@ struct ContentView: View {
 
     // MARK: - Human gates
 
-    /// Gate 1: the actual build target, editable before any coder token is
-    /// spent. This is where intent beyond the photo (interiors, open state)
-    /// becomes spec components the judge will honor.
-    private var specGate: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("The build spec - your target")
-                .font(.headline)
-            Text("Both the coder and the judge follow this spec. Edit anything. " +
-                 "Parts the photo cannot show (interior, open state, hidden side) " +
-                 "are scored against the spec, not the photo.")
+    /// Gate 1: the model's suggested prompt, in plain language. Edit it or
+    /// just start - this is where "the box opens, earbuds inside" enters.
+    private var briefGate: some View {
+        VStack(spacing: 12) {
+            Text("Here is what I see. Correct or add anything, then start.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
             TextEditor(text: Binding(
-                get: { vm.pendingSpec ?? "" },
-                set: { vm.pendingSpec = $0 }))
-                .font(.system(.caption, design: .monospaced))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(.quaternary))
-            HStack {
-                Spacer()
-                Button("Start Cycles") { vm.approveSpec() }
-                    .keyboardShortcut(.defaultAction)
-            }
+                get: { vm.pendingBrief ?? "" },
+                set: { vm.pendingBrief = $0 }))
+                .font(.body)
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .frame(maxWidth: 460, maxHeight: 170)
+                .background(.quaternary.opacity(0.4),
+                            in: RoundedRectangle(cornerRadius: 8))
+            Button("Start") { vm.approveBrief() }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
         }
-        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Gate 2 (coach mode): the run is parked; the critique below is exactly
-    /// what the coder gets told next cycle.
+    /// Gate 2: the judge's suggested next instruction. Edit it or just go.
     private var cycleGateControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Paused after cycle \(vm.cycleGate?.snapshot.cycle ?? 0) - your call")
-                .font(.headline)
-            Text("This is what the coder will be told next cycle. Rewrite it to " +
-                 "steer, pick any cycle as base on the left, or accept the best now.")
-                .font(.caption)
+        VStack(spacing: 10) {
+            Text("Next instruction for the coder - edit or just continue.")
+                .font(.callout)
                 .foregroundStyle(.secondary)
             TextEditor(text: Binding(
                 get: { vm.cycleGate?.critiqueDraft ?? "" },
                 set: { vm.cycleGate?.critiqueDraft = $0 }))
-                .font(.system(.caption, design: .monospaced))
-                .frame(height: 100)
-                .overlay(RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(.quaternary))
-            HStack {
-                Button("Edit Spec...") { showSpecEditor = true }
-                Spacer()
-                Button("Accept Now") { vm.resumeCycle(accept: true) }
-                Button("Continue") { vm.resumeCycle(accept: false) }
+                .font(.body)
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .frame(maxWidth: 640, maxHeight: 120)
+                .background(.quaternary.opacity(0.4),
+                            in: RoundedRectangle(cornerRadius: 8))
+            HStack(spacing: 12) {
+                Button("Use This Model") { vm.resumeCycle(accept: true) }
+                Button("Next Cycle") { vm.resumeCycle(accept: false) }
                     .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
             }
         }
-        .frame(maxWidth: 640)
         .padding(.bottom, 12)
-        .sheet(isPresented: $showSpecEditor) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Edit the spec")
-                    .font(.headline)
-                Text("Takes effect next cycle; the best code so far is kept and " +
-                     "adapted to it.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextEditor(text: Binding(
-                    get: { vm.cycleGate?.specDraft ?? "" },
-                    set: { vm.cycleGate?.specDraft = $0 }))
-                    .font(.system(.caption, design: .monospaced))
-                HStack {
-                    Spacer()
-                    Button("Done") { showSpecEditor = false }
-                        .keyboardShortcut(.defaultAction)
-                }
-            }
-            .padding(16)
-            .frame(width: 560, height: 440)
-        }
     }
 
     private var bottomBar: some View {
-        @Bindable var settings = settings
-        return HStack(spacing: 12) {
+        HStack(spacing: 12) {
             if vm.phase == .done {
                 Text(vm.accepted
                      ? "ACCEPTED \(Self.score(vm.finalScore))"
@@ -431,10 +386,6 @@ struct ContentView: View {
             }
             Spacer()
             if vm.phase == .running {
-                // Live: flipping it mid-run takes effect at the next cycle
-                // boundary - grab or release control without restarting.
-                Toggle("Pause between cycles", isOn: $settings.coachMode)
-                    .toggleStyle(.checkbox)
                 Button("Cancel") { vm.cancel() }
                     .keyboardShortcut(.cancelAction)
             } else {

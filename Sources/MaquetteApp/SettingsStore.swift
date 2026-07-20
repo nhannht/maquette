@@ -61,7 +61,7 @@ final class SettingsStore {
     static let defaultEndpoint = "https://api.moonshot.ai/v1"
     static let defaultModel = "kimi-k2.5"
     static let coderSeesRendersKey = "coderSeesRenders"
-    static let coachModeKey = "coachMode"
+    static let autoContinueKey = "autoContinueCycles"
 
     var coderEndpoint: String { didSet { save(.coder) } }
     var coderModel: String { didSet { save(.coder) } }
@@ -74,10 +74,10 @@ final class SettingsStore {
     /// Attach the best cycle's renders to codegen prompts. Requires a
     /// multimodal coder; off for text-only coders like qwen3-coder.
     var coderSeesRenders: Bool { didSet { saveBool(coderSeesRenders, Self.coderSeesRendersKey) } }
-    /// Pause after every cycle so the user can rewrite the critique, pick the
-    /// base model, edit the spec, or stop. Off = autopilot. Read live: the
-    /// user can grab or release control mid-run.
-    var coachMode: Bool { didSet { saveBool(coachMode, Self.coachModeKey) } }
+    /// Skip the between-cycle confirmation and let the judge drive until it
+    /// accepts. Default off: the app pauses each cycle with the suggested
+    /// next instruction. Read live at each cycle boundary.
+    var autoContinue: Bool { didSet { saveBool(autoContinue, Self.autoContinueKey) } }
 
     init() {
         let defaults = UserDefaults.standard
@@ -90,7 +90,7 @@ final class SettingsStore {
         visionKey = Keychain.get(account: Slot.vision.keychainAccount) ?? ""
         visionReasoning = Self.bool(defaults, Slot.vision.reasoningKey, default: true)
         coderSeesRenders = Self.bool(defaults, Self.coderSeesRendersKey, default: true)
-        coachMode = Self.bool(defaults, Self.coachModeKey, default: false)
+        autoContinue = Self.bool(defaults, Self.autoContinueKey, default: false)
     }
 
     func config(for slot: Slot) -> ModelSlotConfig? {
