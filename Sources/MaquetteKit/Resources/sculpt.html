@@ -96,7 +96,7 @@ window.maquette = {
       scene.add(model);
       return JSON.stringify({ ok: true });
     } catch (err) {
-      const detail = err && err.stack ? String(err.stack) : String(err);
+      const detail = err && err.stack ? String(err) + "\n" + String(err.stack) : String(err);
       return JSON.stringify({ ok: false, error: detail.slice(0, 2000) });
     }
   },
@@ -117,7 +117,7 @@ window.maquette = {
       }
       return JSON.stringify({ ok: true, data: toBase64(buffer) });
     } catch (err) {
-      const detail = err && err.stack ? String(err.stack) : String(err);
+      const detail = err && err.stack ? String(err) + "\n" + String(err.stack) : String(err);
       return JSON.stringify({ ok: false, error: detail.slice(0, 2000) });
     }
   },
