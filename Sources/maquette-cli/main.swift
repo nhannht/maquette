@@ -21,7 +21,10 @@ func usage() -> Never {
       maquette-cli sculpt <photo> --out DIR
           [--coder-model ID] [--vision-model ID]
           [--coder-endpoint URL] [--vision-endpoint URL]
-          [--cycles N] [--threshold X]
+          [--cycles N] [--threshold X] [--coder-text-only]
+
+    --coder-text-only: do not attach render images to codegen prompts; required
+    for text-only coder models (e.g. qwen3-coder), which reject image input.
 
     Keys come from the Keychain (accounts apikey.coder / apikey.vision, set via
     set-key). If apikey.vision is absent the coder key is used for both slots.
@@ -31,6 +34,8 @@ func usage() -> Never {
 }
 
 struct Flags {
+    static let booleanFlags: Set<String> = ["coder-text-only"]
+
     var positional: [String] = []
     var options: [String: String] = [:]
 
@@ -39,8 +44,14 @@ struct Flags {
         while index < args.count {
             let arg = args[index]
             if arg.hasPrefix("--") {
+                let name = String(arg.dropFirst(2))
+                if Self.booleanFlags.contains(name) {
+                    options[name] = "true"
+                    index += 1
+                    continue
+                }
                 guard index + 1 < args.count else { fail("missing value for \(arg)") }
-                options[String(arg.dropFirst(2))] = args[index + 1]
+                options[name] = args[index + 1]
                 index += 2
             } else {
                 positional.append(arg)
@@ -143,6 +154,7 @@ func sculpt(flags: Flags) async throws {
         vision: ModelSlotConfig(endpoint: visionEndpoint, modelID: visionModel, apiKey: visionKey),
         threshold: Double(flags.options["threshold"] ?? "0.7") ?? 0.7,
         maxCycles: Int(flags.options["cycles"] ?? "5") ?? 5,
+        coderSeesRenders: flags.options["coder-text-only"] == nil,
         outDir: URL(fileURLWithPath: outPath))
 
     print("coder:  \(coderModel) @ \(coderEndpoint.absoluteString)")
@@ -166,6 +178,11 @@ func sculpt(flags: Flags) async throws {
             print("  score \(String(format: "%.2f", review.overallScore)) " +
                   "action=\(review.action) [\(layers)]")
             print("  critique: \(review.critique.prefix(400))")
+        case .pairwise(_, let challengerWon, let reason):
+            let verdict = challengerWon
+                ? "challenger wins, becomes best"
+                : "best model defends, attempt discarded"
+            print("  pairwise: \(verdict) - \(reason.prefix(200))")
         }
     }
 

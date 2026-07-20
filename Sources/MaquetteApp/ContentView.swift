@@ -182,6 +182,12 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(6)
+                if let won = cycle.pairwiseWon {
+                    Text(won ? "beat the previous best" : "discarded - previous best kept")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(won ? .green : .orange)
+                        .help(cycle.pairwiseReason ?? "")
+                }
                 thumbnail(cycle.comparison, maxHeight: 90)
             } else {
                 HStack(spacing: 8) {

@@ -23,6 +23,10 @@ final class SculptViewModel {
         var stage: String
         var review: ReviewResult?
         var comparison: NSImage?
+        /// Verdict of the head-to-head against the best model so far; nil for
+        /// the first reviewable cycle (nothing to compare against yet).
+        var pairwiseWon: Bool?
+        var pairwiseReason: String?
     }
 
     static let threshold = 0.7
@@ -111,6 +115,10 @@ final class SculptViewModel {
                 cycles[index].comparison = NSImage(contentsOf:
                     outDir.appendingPathComponent("cycle-\(cycle)/comparison.png"))
             }
+        case .pairwise(let cycle, let challengerWon, let reason):
+            guard let index = cycles.firstIndex(where: { $0.id == cycle }) else { return }
+            cycles[index].pairwiseWon = challengerWon
+            cycles[index].pairwiseReason = reason
         }
     }
 

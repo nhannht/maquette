@@ -54,6 +54,23 @@ final class SculptLoopTests: XCTestCase {
         XCTAssertEqual(try SculptLoop.extractCode(raw), raw)
     }
 
+    func testParsePairwiseVerdict() throws {
+        let verdict = try SculptLoop.parsePairwise(
+            #"Sure! {"winner": "B", "reason": "better silhouette"}"#)
+        XCTAssertEqual(verdict.winner, "B")
+        XCTAssertEqual(verdict.reason, "better silhouette")
+    }
+
+    func testParsePairwiseRejectsBadWinner() {
+        XCTAssertThrowsError(try SculptLoop.parsePairwise(
+            #"{"winner": "C", "reason": "x"}"#)) { error in
+            guard case SculptLoopError.badPairwiseJSON = error else {
+                return XCTFail("expected .badPairwiseJSON, got \(error)")
+            }
+        }
+        XCTAssertThrowsError(try SculptLoop.parsePairwise("no json at all"))
+    }
+
     func testExtractCodeProseThrows() {
         // Leaked reasoning prose, as observed in the IMG3D-12 gemini run:
         // no fence, no buildModel. Must never reach new Function.

@@ -12,16 +12,22 @@ public struct SculptConfig {
     public var threshold: Double
     public var maxCycles: Int
     public var codeErrorRetries: Int
+    /// Attach the best cycle's comparison sheet to codegen prompts. Requires a
+    /// multimodal coder (gemini, kimi); turn off for text-only coders like
+    /// qwen3-coder, whose endpoint rejects image parts.
+    public var coderSeesRenders: Bool
     public var outDir: URL
 
     public init(coder: ModelSlotConfig, vision: ModelSlotConfig,
                 threshold: Double = 0.7, maxCycles: Int = 5,
-                codeErrorRetries: Int = 2, outDir: URL) {
+                codeErrorRetries: Int = 2, coderSeesRenders: Bool = true,
+                outDir: URL) {
         self.coder = coder
         self.vision = vision
         self.threshold = threshold
         self.maxCycles = maxCycles
         self.codeErrorRetries = codeErrorRetries
+        self.coderSeesRenders = coderSeesRenders
         self.outDir = outDir
     }
 }
@@ -66,16 +72,26 @@ public enum SculptEvent {
     case stage(String)
     case cycleStart(Int)
     case review(cycle: Int, ReviewResult)
+    case pairwise(cycle: Int, challengerWon: Bool, reason: String)
+}
+
+/// Verdict of the head-to-head gate between the incumbent and a challenger.
+public struct PairwiseVerdict: Decodable {
+    public let winner: String
+    public let reason: String
 }
 
 public enum SculptLoopError: Error, CustomStringConvertible {
     case badReviewJSON(String)
+    case badPairwiseJSON(String)
     case noSpec(String)
     case noCode(String)
 
     public var description: String {
         switch self {
         case .badReviewJSON(let detail): return "vision review was not valid JSON: \(detail)"
+        case .badPairwiseJSON(let detail):
+            return "pairwise verdict was not valid JSON: \(detail)"
         case .noSpec(let detail): return "spec stage returned no JSON: \(detail)"
         case .noCode(let detail):
             return "coder response contains no code (no fence, no buildModel): \(detail)"
@@ -121,13 +137,15 @@ public final class SculptLoop {
 
         // `code` is transient: it is the previous-code hint fed to the next
         // codegen call, and refine-spec deliberately clears it to force a fresh
-        // build. `best` is durable: the highest-scoring model the run actually
-        // produced. Keeping them separate is what stops a late regression from
-        // discarding a better earlier model.
+        // build. `best` is durable: the incumbent model, replaceable only by a
+        // challenger that wins the pairwise gate. Keeping them separate is what
+        // stops a late regression from discarding a better earlier model.
         var code = ""
         var critique: String?
         var jsError: String?
-        var best: (cycle: Int, code: String, review: ReviewResult)?
+        var best: (cycle: Int, code: String, review: ReviewResult, sheet: Data)?
+        var lastRegressed = false
+        var freshBuild = true
         var cyclesRun = 0
 
         for cycle in 1...config.maxCycles {
@@ -136,17 +154,39 @@ public final class SculptLoop {
             let cycleDir = config.outDir.appendingPathComponent("cycle-\(cycle)")
             try fm.createDirectory(at: cycleDir, withIntermediateDirectories: true)
 
+            // Each cycle iterates on the incumbent, never on whatever the last
+            // cycle left behind - a discarded regression must not become the
+            // next baseline. A fresh build (cycle 1, or right after a spec
+            // refine) starts from the spec alone.
+            if let best, !freshBuild {
+                code = best.code
+                critique = best.review.critique
+                jsError = nil
+            }
+            freshBuild = false
+
             // Codegen, with a bounded free retry lane for plain JS crashes.
             var renders: [(view: RenderView, png: Data)]?
             for attempt in 0...config.codeErrorRetries {
                 onEvent(.stage("codegen (coder slot)\(attempt > 0 ? ", crash fix \(attempt)" : "")"))
+                let inheritsIncumbent = jsError == nil && !code.isEmpty
+                    && code == best?.code
+                var userContent: [ChatContent] = []
+                if inheritsIncumbent && config.coderSeesRenders, let sheet = best?.sheet {
+                    userContent.append(.imagePNG(sheet))
+                }
+                userContent.append(.text(SculptPrompts.codegenUser(
+                    spec: spec, previousCode: code.isEmpty ? nil : code,
+                    critique: critique, jsError: jsError,
+                    incumbentScore: inheritsIncumbent ? best?.review.overallScore : nil,
+                    layerScores: inheritsIncumbent ? best?.review.layerScores : nil,
+                    rendersAttached: inheritsIncumbent && config.coderSeesRenders,
+                    regressed: inheritsIncumbent && lastRegressed)))
                 let result = try await config.coder.client.completeOnce(
                     model: config.coder.modelID,
                     messages: [
                         ChatMessage(role: .system, text: SculptPrompts.codegenSystem),
-                        ChatMessage(role: .user, text: SculptPrompts.codegenUser(
-                            spec: spec, previousCode: code.isEmpty ? nil : code,
-                            critique: critique, jsError: jsError)),
+                        ChatMessage(role: .user, content: userContent),
                     ],
                     temperature: SculptPrompts.codegenTemperature,
                     maxTokens: SculptPrompts.codegenMaxTokens,
@@ -189,12 +229,31 @@ public final class SculptLoop {
             try write(reviewJSON, name: "cycle-\(cycle)/review.json")
             onEvent(.review(cycle: cycle, review))
 
-            if review.overallScore > (best?.review.overallScore ?? -1) {
-                best = (cycle, code, review)
+            // Pairwise gate: absolute scores are too noisy to rank two models,
+            // so a challenger replaces the incumbent only by beating it
+            // head-to-head. The kept model never regresses in the judge's eyes.
+            if let incumbent = best {
+                onEvent(.stage("pairwise vs best (vision slot)"))
+                let (challengerWon, reason) = try await makePairwise(
+                    incumbentSheet: incumbent.sheet, challengerSheet: sheet)
+                let pairwiseJSON = try JSONSerialization.data(
+                    withJSONObject: ["challengerWon": challengerWon, "reason": reason],
+                    options: [.prettyPrinted, .sortedKeys])
+                try write(pairwiseJSON, name: "cycle-\(cycle)/pairwise.json")
+                onEvent(.pairwise(cycle: cycle, challengerWon: challengerWon,
+                                  reason: reason))
+                if challengerWon {
+                    best = (cycle, code, review, sheet)
+                    lastRegressed = false
+                } else {
+                    lastRegressed = true
+                }
+            } else {
+                best = (cycle, code, review, sheet)
             }
 
-            if review.overallScore >= config.threshold || review.action == "stop"
-                || review.action == "continue" {
+            if (best?.review.overallScore ?? 0) >= config.threshold
+                || review.action == "stop" || review.action == "continue" {
                 break
             }
             critique = review.critique
@@ -206,6 +265,7 @@ public final class SculptLoop {
                 try write(spec, name: "spec-\(cycle + 1).json")
                 code = ""  // spec changed; force a fresh build instead of a patch
                 critique = nil
+                freshBuild = true
             }
         }
 
@@ -306,7 +366,40 @@ public final class SculptLoop {
         return review
     }
 
+    /// Head-to-head verdict between the incumbent's sheet and the challenger's.
+    /// A/B order is randomized per call to neutralize the judge's position bias.
+    private func makePairwise(incumbentSheet: Data, challengerSheet: Data)
+        async throws -> (challengerWon: Bool, reason: String) {
+        let incumbentFirst = Bool.random()
+        let result = try await config.vision.client.completeOnce(
+            model: config.vision.modelID,
+            messages: [
+                ChatMessage(role: .system, text: SculptPrompts.pairwiseSystem),
+                ChatMessage(role: .user, content: [
+                    .imagePNG(incumbentFirst ? incumbentSheet : challengerSheet),
+                    .imagePNG(incumbentFirst ? challengerSheet : incumbentSheet),
+                    .text(SculptPrompts.pairwiseUser),
+                ]),
+            ],
+            temperature: SculptPrompts.pairwiseTemperature,
+            maxTokens: SculptPrompts.pairwiseMaxTokens,
+            reasoningMaxTokens: SculptPrompts.pairwiseReasoningMaxTokens)
+        visionUsage.add(result.usage)
+        let verdict = try Self.parsePairwise(result.text)
+        let firstWon = verdict.winner == "A"
+        return (incumbentFirst ? !firstWon : firstWon, verdict.reason)
+    }
+
     // MARK: - Text extraction (LLMs love fences no matter what the prompt says)
+
+    nonisolated static func parsePairwise(_ text: String) throws -> PairwiseVerdict {
+        guard let json = extractJSON(text), let data = json.data(using: .utf8),
+              let verdict = try? JSONDecoder().decode(PairwiseVerdict.self, from: data),
+              verdict.winner == "A" || verdict.winner == "B" else {
+            throw SculptLoopError.badPairwiseJSON(String(text.prefix(300)))
+        }
+        return verdict
+    }
 
     nonisolated static func extractJSON(_ text: String) -> String? {
         if let fenced = extractFenced(text, languages: ["json", ""]) {
