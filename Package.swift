@@ -11,7 +11,8 @@ let package = Package(
         .target(
             name: "MaquetteKit",
             dependencies: [.product(name: "DepthCardKit", package: "depthcard")],
-            path: "Sources/MaquetteKit"),
+            path: "Sources/MaquetteKit",
+            resources: [.copy("Resources")]),
         .executableTarget(
             name: "MaquetteApp",
             dependencies: ["MaquetteKit"],

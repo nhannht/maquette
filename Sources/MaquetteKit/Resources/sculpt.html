@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #dfe3e8; }
+  canvas { display: block; }
+</style>
+<script type="importmap">
+  { "imports": { "three": "./three.module.min.js" } }
+</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from "three";
+
+const state = { ready: false, model: null };
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xdfe3e8);
+
+const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.01, 1000);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(1);
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8d9199, 1.0));
+const key = new THREE.DirectionalLight(0xffffff, 2.2);
+key.position.set(3, 4, 5);
+scene.add(key);
+const fill = new THREE.DirectionalLight(0xffffff, 0.7);
+fill.position.set(-4, 2, -3);
+scene.add(fill);
+
+const VIEWS = {
+  front:        new THREE.Vector3(0, 0.12, 1),
+  threeQuarter: new THREE.Vector3(0.75, 0.45, 0.75),
+  side:         new THREE.Vector3(1, 0.12, 0),
+  top:          new THREE.Vector3(0.001, 1, 0.001),
+};
+
+function frame(viewName) {
+  const box = new THREE.Box3().setFromObject(state.model);
+  const sphere = box.getBoundingSphere(new THREE.Sphere());
+  const dist = (sphere.radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.15;
+  const dir = VIEWS[viewName].clone().normalize();
+  camera.position.copy(sphere.center).addScaledVector(dir, dist);
+  camera.near = dist / 100;
+  camera.far = dist * 100;
+  camera.updateProjectionMatrix();
+  camera.lookAt(sphere.center);
+}
+
+// Swift talks to this object via evaluateJavaScript. Every call returns a JSON
+// string {ok, error?} so errors travel back to the loop instead of dying here.
+window.maquette = {
+  load(code) {
+    try {
+      if (state.model) { scene.remove(state.model); state.model = null; }
+      const factory = new Function("THREE", '"use strict";\n' + code + "\nreturn buildModel(THREE);");
+      const model = factory(THREE);
+      if (!model || !model.isObject3D) throw new Error("buildModel(THREE) must return a THREE.Object3D");
+      const box = new THREE.Box3().setFromObject(model);
+      if (box.isEmpty()) throw new Error("model has no visible geometry");
+      state.model = model;
+      scene.add(model);
+      return JSON.stringify({ ok: true });
+    } catch (err) {
+      const detail = err && err.stack ? String(err.stack) : String(err);
+      return JSON.stringify({ ok: false, error: detail.slice(0, 2000) });
+    }
+  },
+  view(name) {
+    try {
+      if (!state.model) throw new Error("no model loaded");
+      if (!VIEWS[name]) throw new Error("unknown view: " + name);
+      frame(name);
+      renderer.render(scene, camera);
+      return JSON.stringify({ ok: true });
+    } catch (err) {
+      return JSON.stringify({ ok: false, error: String(err).slice(0, 2000) });
+    }
+  },
+  ready() { return state.ready; },
+};
+
+renderer.render(scene, camera);
+state.ready = true;
+</script>
+</body>
+</html>
