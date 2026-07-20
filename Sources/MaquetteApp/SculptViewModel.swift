@@ -27,6 +27,9 @@ final class SculptViewModel {
         /// the first reviewable cycle (nothing to compare against yet).
         var pairwiseWon: Bool?
         var pairwiseReason: String?
+        /// This cycle's own exported model - the user can overrule the judge
+        /// and pick any cycle by eye.
+        var usdzURL: URL?
     }
 
     static let threshold = 0.7
@@ -114,6 +117,10 @@ final class SculptViewModel {
             if let outDir {
                 cycles[index].comparison = NSImage(contentsOf:
                     outDir.appendingPathComponent("cycle-\(cycle)/comparison.png"))
+                let usdz = outDir.appendingPathComponent("cycle-\(cycle)/model.usdz")
+                if FileManager.default.fileExists(atPath: usdz.path) {
+                    cycles[index].usdzURL = usdz
+                }
             }
         case .pairwise(let cycle, let challengerWon, let reason):
             guard let index = cycles.firstIndex(where: { $0.id == cycle }) else { return }
@@ -179,8 +186,8 @@ final class SculptViewModel {
         reset()
     }
 
-    func quickLook() {
-        quickLookURL = usdzURL
+    func quickLook(_ url: URL? = nil) {
+        quickLookURL = url ?? usdzURL
     }
 
     func saveUSDZ() {

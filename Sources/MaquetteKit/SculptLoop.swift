@@ -229,6 +229,21 @@ public final class SculptLoop {
             let sheet = try ComparisonSheet.compose(reference: subject, renders: renders)
             try write(sheet, name: "cycle-\(cycle)/comparison.png")
 
+            // Every reviewable cycle's model is exported, not just the gate's
+            // pick: the judge is a proxy for the user's eye, and when they
+            // disagree the user is ground truth - they pick from cycle-N/.
+            // The page still holds this cycle's model after renderAll, so this
+            // is local and free. A failed export never fails the cycle.
+            onEvent(.stage("export cycle model"))
+            for format in ExportFormat.allCases {
+                do {
+                    let data = try await harness.export(format)
+                    try write(data, name: "cycle-\(cycle)/\(format.fileName)")
+                } catch {
+                    onEvent(.stage("cycle export failed (\(format.rawValue)): \(error)"))
+                }
+            }
+
             onEvent(.stage("review (vision slot)"))
             let review = try await makeReview(sheetPNG: sheet)
             let reviewJSON = try JSONSerialization.data(

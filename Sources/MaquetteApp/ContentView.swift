@@ -189,6 +189,11 @@ struct ContentView: View {
                         .help(cycle.pairwiseReason ?? "")
                 }
                 thumbnail(cycle.comparison, maxHeight: 90)
+                if let usdz = cycle.usdzURL {
+                    Button("Quick Look this cycle") { vm.quickLook(usdz) }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                }
             } else {
                 HStack(spacing: 8) {
                     if vm.phase == .running {
