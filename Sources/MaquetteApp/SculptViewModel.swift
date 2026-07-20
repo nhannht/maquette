@@ -35,6 +35,19 @@ final class SculptViewModel {
     static let threshold = 0.7
     static let maxCycles = 5
 
+    /// UI state while the loop waits at the per-cycle gate (coach mode).
+    struct CycleGateState {
+        let snapshot: SculptCycleSnapshot
+        /// Editable: what the coder will be told next cycle. Prefilled with
+        /// the judge's critique; only a changed text is sent as an override.
+        var critiqueDraft: String
+        /// Editable via the spec sheet; only a changed text replaces the spec.
+        var specDraft: String
+        /// Which cycle's model carries forward. Prefilled with the pairwise
+        /// gate's pick; the user can point it at any reviewed cycle.
+        var selectedBase: Int
+    }
+
     var phase: Phase = .idle
     var photoURL: URL?
     var photoImage: NSImage?
@@ -44,6 +57,21 @@ final class SculptViewModel {
     var cycles: [CycleRecord] = []
     /// Set after a run that produced a best model: fuels "Keep refining".
     var resumeSeed: SculptSeed?
+    /// Non-nil while the loop waits for the user to approve the spec; bound
+    /// to the spec editor.
+    var pendingSpec: String?
+    /// Non-nil while the loop waits at a cycle gate.
+    var cycleGate: CycleGateState?
+    /// "Use as base" clicked during autopilot; consumed at the next cycle
+    /// boundary without pausing the loop.
+    var pendingBaseOverride: Int?
+
+    private var specContinuation: CheckedContinuation<String, Never>?
+    private var cycleContinuation: CheckedContinuation<SculptCycleDecision, Never>?
+    private var coachMode: () -> Bool = { false }
+    /// Intent of the current run, kept so "Keep Refining" preserves it (a
+    /// mid-run refine-spec call still needs it).
+    private var runIntent: String?
 
     var accepted = false
     var finalScore: Double = 0
@@ -61,7 +89,9 @@ final class SculptViewModel {
     // MARK: - Running
 
     func run(photo: URL, coder: ModelSlotConfig, vision: ModelSlotConfig,
-             coderSeesRenders: Bool = true, seed: SculptSeed? = nil) {
+             coderSeesRenders: Bool = true, intent: String? = nil,
+             coachMode: @escaping () -> Bool = { false },
+             seed: SculptSeed? = nil) {
         guard phase != .running else { return }
         reset()
         phase = .running
@@ -69,6 +99,8 @@ final class SculptViewModel {
         photoImage = NSImage(contentsOf: photo)
         startedAt = Date()
         currentStage = "starting"
+        self.coachMode = coachMode
+        runIntent = intent?.isEmpty == true ? nil : intent
 
         runTask = Task { @MainActor in
             let harness = RenderHarness()
@@ -81,10 +113,12 @@ final class SculptViewModel {
                                           threshold: Self.threshold,
                                           maxCycles: Self.maxCycles,
                                           coderSeesRenders: coderSeesRenders,
+                                          userIntent: runIntent,
                                           outDir: outDir)
                 let loop = SculptLoop(config: config, harness: harness)
                 let outcome = try await loop.run(photoPath: photo.path,
-                                                 seed: seed) { [weak self] event in
+                                                 seed: seed,
+                                                 gate: makeGate()) { [weak self] event in
                     self?.apply(event)
                 }
                 finish(outcome)
@@ -99,10 +133,93 @@ final class SculptViewModel {
     }
 
     /// Cancellation lands at the next network call (the expensive part);
-    /// in-flight render or export JS finishes first.
+    /// in-flight render or export JS finishes first. A loop parked at a human
+    /// gate must be resumed first or the cancel would never be seen.
     func cancel() {
         currentStage = "cancelling after the current call..."
+        if let cont = specContinuation {
+            specContinuation = nil
+            let draft = pendingSpec ?? ""
+            pendingSpec = nil
+            cont.resume(returning: draft)
+        }
+        if let cont = cycleContinuation {
+            cycleContinuation = nil
+            cycleGate = nil
+            cont.resume(returning: SculptCycleDecision(action: .continueRun))
+        }
         runTask?.cancel()
+    }
+
+    // MARK: - Human gates
+
+    /// The loop's two pause points. Autopilot cycles never suspend: they just
+    /// consume a pending "Use as base" click. Coach mode parks the loop on a
+    /// continuation until the user decides.
+    private func makeGate() -> SculptGate {
+        SculptGate(
+            approveSpec: { [weak self] draft in
+                guard let self else { return draft }
+                return await withCheckedContinuation { cont in
+                    self.currentStage = "review the spec"
+                    self.pendingSpec = draft
+                    self.specContinuation = cont
+                }
+            },
+            reviewCycle: { [weak self] snapshot in
+                guard let self else { return SculptCycleDecision() }
+                guard self.coachMode() else {
+                    let forced = self.pendingBaseOverride
+                    self.pendingBaseOverride = nil
+                    return SculptCycleDecision(
+                        forcedIncumbent: forced == snapshot.bestCycle ? nil : forced)
+                }
+                return await withCheckedContinuation { cont in
+                    self.currentStage = "paused - your call"
+                    self.cycleGate = CycleGateState(
+                        snapshot: snapshot,
+                        critiqueDraft: snapshot.review.critique,
+                        specDraft: snapshot.spec,
+                        selectedBase: self.pendingBaseOverride ?? snapshot.bestCycle)
+                    self.pendingBaseOverride = nil
+                    self.cycleContinuation = cont
+                }
+            })
+    }
+
+    /// The user approved (possibly edited) the spec: cycles start.
+    func approveSpec() {
+        guard let cont = specContinuation else { return }
+        let spec = pendingSpec ?? ""
+        specContinuation = nil
+        pendingSpec = nil
+        currentStage = "starting cycles"
+        cont.resume(returning: spec)
+    }
+
+    /// The user decided at a cycle gate. Only fields they actually changed
+    /// become overrides; untouched drafts defer to the loop.
+    func resumeCycle(accept: Bool) {
+        guard let gate = cycleGate, let cont = cycleContinuation else { return }
+        cycleContinuation = nil
+        cycleGate = nil
+        let critique = gate.critiqueDraft == gate.snapshot.review.critique
+            ? nil : gate.critiqueDraft
+        let spec = gate.specDraft == gate.snapshot.spec ? nil : gate.specDraft
+        let forced = gate.selectedBase == gate.snapshot.bestCycle
+            ? nil : gate.selectedBase
+        cont.resume(returning: SculptCycleDecision(
+            action: accept ? .acceptNow : .continueRun,
+            critique: critique, forcedIncumbent: forced, spec: spec))
+    }
+
+    /// "Use as base" during autopilot: no pause, applied at the next boundary.
+    func overrideBase(_ cycle: Int) {
+        if cycleGate != nil {
+            cycleGate?.selectedBase = cycle
+        } else {
+            pendingBaseOverride = cycle
+        }
     }
 
     private func apply(_ event: SculptEvent) {
@@ -179,7 +296,8 @@ final class SculptViewModel {
                       coderSeesRenders: Bool) {
         guard phase == .done, let photoURL, let resumeSeed else { return }
         run(photo: photoURL, coder: coder, vision: vision,
-            coderSeesRenders: coderSeesRenders, seed: resumeSeed)
+            coderSeesRenders: coderSeesRenders, intent: runIntent,
+            coachMode: coachMode, seed: resumeSeed)
     }
 
     private func reset() {
@@ -191,6 +309,11 @@ final class SculptViewModel {
         startedAt = nil
         cycles = []
         resumeSeed = nil
+        pendingSpec = nil
+        cycleGate = nil
+        pendingBaseOverride = nil
+        specContinuation = nil
+        cycleContinuation = nil
         accepted = false
         finalScore = 0
         bestCycle = nil
