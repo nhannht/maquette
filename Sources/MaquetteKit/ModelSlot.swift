@@ -7,12 +7,20 @@ import Foundation
 public struct ModelSlotConfig: Equatable {
     public var endpoint: URL
     public var modelID: String
+    /// Empty for keyless local endpoints (Ollama, LM Studio).
     public var apiKey: String
+    /// Whether this model reasons before answering. Gates sending the
+    /// per-stage reasoning token budget: a reasoning model without the cap
+    /// starves its own output (IMG3D-12), while OpenRouter and Ollama simply
+    /// ignore the field on non-reasoning models.
+    public var reasoning: Bool
 
-    public init(endpoint: URL, modelID: String, apiKey: String) {
+    public init(endpoint: URL, modelID: String, apiKey: String,
+                reasoning: Bool = true) {
         self.endpoint = endpoint
         self.modelID = modelID
         self.apiKey = apiKey
+        self.reasoning = reasoning
     }
 
     public var client: ChatClient {

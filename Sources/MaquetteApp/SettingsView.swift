@@ -8,32 +8,76 @@ struct SettingsView: View {
         @Bindable var settings = settings
         Form {
             Section {
-                Text("Bring your own key. Any OpenAI-compatible endpoint works " +
-                     "(Moonshot, OpenRouter, ...). Kimi K2.5 is multimodal, so both " +
-                     "slots can use the same model and key.")
+                Text("Bring your own model. Any OpenAI-compatible endpoint works: " +
+                     "hosted (OpenRouter, Moonshot) or local (Ollama, LM Studio - " +
+                     "cheaper and fully private, no key needed).")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            Section("Coder model (writes the 3D factory code)") {
-                TextField("Endpoint", text: $settings.coderEndpoint,
-                          prompt: Text(SettingsStore.defaultEndpoint))
-                TextField("Model ID", text: $settings.coderModel,
-                          prompt: Text(SettingsStore.defaultModel))
-                SecureField("API key", text: $settings.coderKey)
+            Section("Coder (writes the 3D factory code)") {
+                slotFields(endpoint: $settings.coderEndpoint,
+                           model: $settings.coderModel,
+                           key: $settings.coderKey,
+                           reasoning: $settings.coderReasoning)
+                Toggle("Show the coder its renders", isOn: $settings.coderSeesRenders)
+                Text("Attaches the best cycle's comparison sheet to coding prompts. " +
+                     "Needs a multimodal coder (gemini, kimi); turn off for text-only " +
+                     "coders like qwen3-coder.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 SlotTestButton(slot: .coder)
             }
-            Section("Vision model (scores renders against the photo)") {
-                TextField("Endpoint", text: $settings.visionEndpoint,
-                          prompt: Text(SettingsStore.defaultEndpoint))
-                TextField("Model ID", text: $settings.visionModel,
-                          prompt: Text(SettingsStore.defaultModel))
-                SecureField("API key", text: $settings.visionKey)
+            Section("Judge (scores renders against the photo)") {
+                slotFields(endpoint: $settings.visionEndpoint,
+                           model: $settings.visionModel,
+                           key: $settings.visionKey,
+                           reasoning: $settings.visionReasoning)
+                Text("Must accept images. The judge is only a default: every " +
+                     "cycle's model is exported, you pick the winner by eye.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 SlotTestButton(slot: .vision)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520)
+        .frame(width: 560)
         .padding()
+    }
+
+    /// Shared per-slot fields: provider preset up front for the simple path,
+    /// raw endpoint only when Custom, key optional, reasoning toggle.
+    @ViewBuilder
+    private func slotFields(endpoint: Binding<String>, model: Binding<String>,
+                            key: Binding<String>,
+                            reasoning: Binding<Bool>) -> some View {
+        let provider = Binding<SettingsStore.Provider>(
+            get: { .detect(endpoint.wrappedValue) },
+            set: { newValue in
+                if let preset = newValue.endpoint { endpoint.wrappedValue = preset }
+            })
+        Picker("Provider", selection: provider) {
+            ForEach(SettingsStore.Provider.allCases) { candidate in
+                Text(candidate.label).tag(candidate)
+            }
+        }
+        if provider.wrappedValue == .custom {
+            TextField("Endpoint", text: endpoint,
+                      prompt: Text("https://host/v1"))
+        } else {
+            LabeledContent("Endpoint", value: endpoint.wrappedValue)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        TextField("Model ID", text: model, prompt: Text(SettingsStore.defaultModel))
+        SecureField("API key", text: key,
+                    prompt: Text(provider.wrappedValue.isLocal
+                                 ? "not needed for local endpoints" : "required"))
+        Toggle("Reasoning model", isOn: reasoning)
+        Text("Keep ON for models that think before answering (gemini, kimi " +
+             "thinking, o-series, qwen -thinking): it caps thinking tokens so the " +
+             "answer is not starved. Harmless if the model does not reason.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 }
 
@@ -55,7 +99,7 @@ struct SlotTestButton: View {
             switch status {
             case .idle:
                 if settings.config(for: slot) == nil {
-                    Text("fill endpoint, model, and key first")
+                    Text("fill endpoint and model first")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             case .running:

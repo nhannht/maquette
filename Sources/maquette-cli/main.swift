@@ -23,9 +23,13 @@ func usage() -> Never {
           [--coder-model ID] [--vision-model ID]
           [--coder-endpoint URL] [--vision-endpoint URL]
           [--cycles N] [--threshold X] [--coder-text-only]
+          [--coder-no-reasoning] [--vision-no-reasoning]
 
     --coder-text-only: do not attach render images to codegen prompts; required
     for text-only coder models (e.g. qwen3-coder), which reject image input.
+    --coder-no-reasoning / --vision-no-reasoning: do not send the reasoning
+    token budget for that slot (for endpoints that reject the field).
+    Keys are optional for keyless local endpoints (Ollama, LM Studio).
 
     Keys come from the Keychain (accounts apikey.coder / apikey.vision, set via
     set-key). If apikey.vision is absent the coder key is used for both slots.
@@ -35,7 +39,8 @@ func usage() -> Never {
 }
 
 struct Flags {
-    static let booleanFlags: Set<String> = ["coder-text-only"]
+    static let booleanFlags: Set<String> =
+        ["coder-text-only", "coder-no-reasoning", "vision-no-reasoning"]
 
     var positional: [String] = []
     var options: [String: String] = [:]
@@ -155,9 +160,9 @@ func exportFactory(flags: Flags) async throws {
 func sculpt(flags: Flags) async throws {
     guard let photoPath = flags.positional.dropFirst().first else { usage() }
     guard let outPath = flags.options["out"] else { fail("--out DIR is required") }
-    guard let coderKey = Keychain.get(account: "apikey.coder") else {
-        fail("no coder key in Keychain; run: maquette-cli set-key coder")
-    }
+    // Missing keys are fine for keyless local endpoints (Ollama, LM Studio);
+    // a hosted endpoint without a key fails loudly at the first call.
+    let coderKey = Keychain.get(account: "apikey.coder") ?? ""
     let visionKey = Keychain.get(account: "apikey.vision") ?? coderKey
 
     guard let coderModel = flags.options["coder-model"],
@@ -170,8 +175,12 @@ func sculpt(flags: Flags) async throws {
     }
 
     let config = SculptConfig(
-        coder: ModelSlotConfig(endpoint: coderEndpoint, modelID: coderModel, apiKey: coderKey),
-        vision: ModelSlotConfig(endpoint: visionEndpoint, modelID: visionModel, apiKey: visionKey),
+        coder: ModelSlotConfig(endpoint: coderEndpoint, modelID: coderModel,
+                               apiKey: coderKey,
+                               reasoning: flags.options["coder-no-reasoning"] == nil),
+        vision: ModelSlotConfig(endpoint: visionEndpoint, modelID: visionModel,
+                                apiKey: visionKey,
+                                reasoning: flags.options["vision-no-reasoning"] == nil),
         threshold: Double(flags.options["threshold"] ?? "0.7") ?? 0.7,
         maxCycles: Int(flags.options["cycles"] ?? "5") ?? 5,
         coderSeesRenders: flags.options["coder-text-only"] == nil,

@@ -195,7 +195,8 @@ public final class SculptLoop {
                         ],
                         temperature: SculptPrompts.codegenTemperature,
                         maxTokens: SculptPrompts.codegenMaxTokens,
-                        reasoningMaxTokens: SculptPrompts.codegenReasoningMaxTokens)
+                        reasoningMaxTokens: config.coder.reasoning
+                            ? SculptPrompts.codegenReasoningMaxTokens : nil)
                     coderUsage.add(result.usage)
                     code = try Self.extractCode(result.text)
                 } catch let error where Self.isRetryableCodegenFailure(error) {
@@ -362,7 +363,8 @@ public final class SculptLoop {
             ],
             temperature: SculptPrompts.specTemperature,
             maxTokens: SculptPrompts.specMaxTokens,
-            reasoningMaxTokens: SculptPrompts.specReasoningMaxTokens)
+            reasoningMaxTokens: config.vision.reasoning
+                ? SculptPrompts.specReasoningMaxTokens : nil)
         visionUsage.add(result.usage)
         guard let json = Self.extractJSON(result.text) else {
             throw SculptLoopError.noSpec(String(result.text.prefix(300)))
@@ -382,7 +384,8 @@ public final class SculptLoop {
             ],
             temperature: SculptPrompts.reviewTemperature,
             maxTokens: SculptPrompts.reviewMaxTokens,
-            reasoningMaxTokens: SculptPrompts.reviewReasoningMaxTokens)
+            reasoningMaxTokens: config.vision.reasoning
+                ? SculptPrompts.reviewReasoningMaxTokens : nil)
         visionUsage.add(result.usage)
         guard let json = Self.extractJSON(result.text),
               let data = json.data(using: .utf8),
@@ -409,7 +412,8 @@ public final class SculptLoop {
             ],
             temperature: SculptPrompts.pairwiseTemperature,
             maxTokens: SculptPrompts.pairwiseMaxTokens,
-            reasoningMaxTokens: SculptPrompts.pairwiseReasoningMaxTokens)
+            reasoningMaxTokens: config.vision.reasoning
+                ? SculptPrompts.pairwiseReasoningMaxTokens : nil)
         visionUsage.add(result.usage)
         let verdict = try Self.parsePairwise(result.text)
         let firstWon = verdict.winner == "A"

@@ -219,7 +219,11 @@ public struct ChatClient {
 
         var request = URLRequest(url: endpoint.appending(path: "chat/completions"))
         request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        // Local endpoints (Ollama, LM Studio) are keyless; only send the
+        // header when a key exists.
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 600
         request.httpBody = try JSONSerialization.data(withJSONObject: body)

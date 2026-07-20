@@ -56,7 +56,8 @@ struct ContentView: View {
             openSettings()
             return
         }
-        vm.run(photo: url, coder: coder, vision: vision)
+        vm.run(photo: url, coder: coder, vision: vision,
+               coderSeesRenders: settings.coderSeesRenders)
     }
 
     // MARK: - Idle

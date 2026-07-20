@@ -56,7 +56,8 @@ final class SculptViewModel {
 
     // MARK: - Running
 
-    func run(photo: URL, coder: ModelSlotConfig, vision: ModelSlotConfig) {
+    func run(photo: URL, coder: ModelSlotConfig, vision: ModelSlotConfig,
+             coderSeesRenders: Bool = true) {
         guard phase != .running else { return }
         reset()
         phase = .running
@@ -73,6 +74,7 @@ final class SculptViewModel {
                 let config = SculptConfig(coder: coder, vision: vision,
                                           threshold: Self.threshold,
                                           maxCycles: Self.maxCycles,
+                                          coderSeesRenders: coderSeesRenders,
                                           outDir: outDir)
                 let loop = SculptLoop(config: config, harness: harness)
                 let outcome = try await loop.run(photoPath: photo.path) { [weak self] event in

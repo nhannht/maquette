@@ -59,6 +59,27 @@ final class ChatClientTests: XCTestCase {
         return try JSONSerialization.jsonObject(with: request.httpBody!) as? [String: Any]
     }
 
+    func testEmptyKeySendsNoAuthorizationHeader() throws {
+        // Local endpoints (Ollama, LM Studio) are keyless.
+        let client = ChatClient(endpoint: URL(string: "http://127.0.0.1:11434/v1")!,
+                                apiKey: "")
+        let request = try client.makeRequest(
+            model: "m", messages: [ChatMessage(role: .user, text: "hi")],
+            temperature: nil, maxTokens: 64,
+            reasoningMaxTokens: nil, stream: false)
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func testKeyedClientSendsAuthorizationHeader() throws {
+        let client = ChatClient(endpoint: URL(string: "https://example.com/v1")!,
+                                apiKey: "sk-test")
+        let request = try client.makeRequest(
+            model: "m", messages: [ChatMessage(role: .user, text: "hi")],
+            temperature: nil, maxTokens: 64,
+            reasoningMaxTokens: nil, stream: false)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test")
+    }
+
     func testReasoningCapInRequestBody() throws {
         let body = try requestBody(reasoningMaxTokens: 2048)
         let reasoning = body?["reasoning"] as? [String: Any]
