@@ -24,11 +24,15 @@ func usage() -> Never {
           [--coder-endpoint URL] [--vision-endpoint URL]
           [--cycles N] [--threshold X] [--coder-text-only]
           [--coder-no-reasoning] [--vision-no-reasoning]
+          [--intent TEXT] [--spec-file PATH]
 
     --coder-text-only: do not attach render images to codegen prompts; required
     for text-only coder models (e.g. qwen3-coder), which reject image input.
     --coder-no-reasoning / --vision-no-reasoning: do not send the reasoning
     token budget for that slot (for endpoints that reject the field).
+    --intent: what the model must include beyond what the photo shows (interior,
+    open state, hidden side); folded into the spec, judged as authoritative.
+    --spec-file: use this spec JSON verbatim and skip the spec call.
     Keys are optional for keyless local endpoints (Ollama, LM Studio).
 
     Keys come from the Keychain (accounts apikey.coder / apikey.vision, set via
@@ -184,6 +188,13 @@ func sculpt(flags: Flags) async throws {
         threshold: Double(flags.options["threshold"] ?? "0.7") ?? 0.7,
         maxCycles: Int(flags.options["cycles"] ?? "5") ?? 5,
         coderSeesRenders: flags.options["coder-text-only"] == nil,
+        userIntent: flags.options["intent"],
+        presetSpec: flags.options["spec-file"].map { path in
+            guard let spec = try? String(contentsOfFile: path, encoding: .utf8) else {
+                fail("cannot read --spec-file \(path)")
+            }
+            return spec
+        },
         outDir: URL(fileURLWithPath: outPath))
 
     print("coder:  \(coderModel) @ \(coderEndpoint.absoluteString)")
