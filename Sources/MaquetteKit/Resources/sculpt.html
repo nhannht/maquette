@@ -78,6 +78,20 @@ window.maquette = {
       if (!model || !model.isObject3D) throw new Error("buildModel(THREE) must return a THREE.Object3D");
       const box = new THREE.Box3().setFromObject(model);
       if (box.isEmpty()) throw new Error("model has no visible geometry");
+      // A NaN box passes isEmpty() (NaN compares false) and then poisons the
+      // camera framing, rendering blank from every view - catch it here so it
+      // costs a free retry, not a paid review cycle (IMG3D-17).
+      const bounds = [box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z];
+      if (!bounds.every(Number.isFinite)) {
+        throw new Error("model bounding box is not finite: some geometry has NaN or " +
+          "Infinity vertex positions. Common cause: passing a 2D curve (EllipseCurve, " +
+          "Shape) to TubeGeometry, which requires a 3D curve (e.g. CatmullRomCurve3), " +
+          "or invalid geometry parameters.");
+      }
+      const size = box.getSize(new THREE.Vector3());
+      if (Math.max(size.x, size.y, size.z) < 1e-6) {
+        throw new Error("model is degenerately small: bounding box size is ~0");
+      }
       state.model = model;
       scene.add(model);
       return JSON.stringify({ ok: true });
