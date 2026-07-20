@@ -36,6 +36,35 @@ final class SculptPromptsTests: XCTestCase {
         XCTAssertTrue(text.contains("discarded"))
     }
 
+    func testSpecUserCarriesIntent() {
+        let text = SculptPrompts.specUser(
+            critique: nil, previousSpec: nil,
+            intent: "the box opens; a pair of earbuds sits inside")
+        XCTAssertTrue(text.contains("USER INTENT"))
+        XCTAssertTrue(text.contains("a pair of earbuds sits inside"))
+        XCTAssertTrue(text.contains("even where"))
+    }
+
+    func testSpecUserOmitsIntentWhenEmpty() {
+        XCTAssertFalse(SculptPrompts.specUser(critique: nil, previousSpec: nil,
+                                              intent: "").contains("USER INTENT"))
+        XCTAssertFalse(SculptPrompts.specUser(critique: nil, previousSpec: nil)
+            .contains("USER INTENT"))
+    }
+
+    func testJudgePromptsReceiveSpec() {
+        // The spec can extend beyond the photo (user intent: interiors, open
+        // state); a judge scoring against the photo alone would punish the
+        // correct model, so both judge stages must carry the spec.
+        let spec = #"{"object":"ipod box, lid open"}"#
+        XCTAssertTrue(SculptPrompts.reviewUser(spec: spec)
+            .contains("SPEC:\n\(spec)"))
+        XCTAssertTrue(SculptPrompts.pairwiseUser(spec: spec)
+            .contains("SPEC:\n\(spec)"))
+        XCTAssertTrue(SculptPrompts.reviewSystem.contains("never punish"))
+        XCTAssertTrue(SculptPrompts.pairwiseSystem.contains("never count"))
+    }
+
     func testCodegenUserCrashLaneHasNoIncumbentFraming() {
         // Crash retries iterate on the crashing code itself; the incumbent
         // framing (and its image) belongs only to the fresh-attempt lane.

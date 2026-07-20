@@ -37,8 +37,18 @@ public enum SculptPrompts {
     If a side is hidden, infer it from symmetry and say so in hints.
     """
 
-    public static func specUser(critique: String?, previousSpec: String?) -> String {
+    public static func specUser(critique: String?, previousSpec: String?,
+                                intent: String? = nil) -> String {
         var text = "Analyze this object photo and produce the build spec JSON."
+        if let intent, !intent.isEmpty {
+            text += """
+            \n\nUSER INTENT - the user wants the model to include this, even where \
+            the photo cannot show it (interior, open state, hidden side). Translate \
+            it into concrete spec components with sizes and positions, and note in \
+            "hints" which parts come from intent rather than the photo:
+            \(intent)
+            """
+        }
         if let previousSpec, let critique {
             text += """
             \n\nA previous spec produced a rejected model. Revise the spec to fix the critique.
@@ -145,7 +155,11 @@ public enum SculptPrompts {
     public static let reviewSystem = """
     You are a strict 3D visual QA judge. You receive one comparison sheet: the \
     REFERENCE photo on the left, four labeled renders of a procedural model on the \
-    right (front, threeQuarter, side, top).
+    right (front, threeQuarter, side, top). You also receive the build SPEC JSON: \
+    the spec is the authoritative target and the photo is its visual reference. \
+    Where the spec deliberately goes beyond what the photo can show (interior \
+    parts, an open state, the hidden side), score those parts against the spec - \
+    never punish the model for depicting them.
 
     Score layers 0 to 1 against the reference:
     - "silhouetteProportion": outer contour, mass distribution, width/height/depth.
@@ -169,10 +183,15 @@ public enum SculptPrompts {
     model already meets the bar.
     """
 
-    public static let reviewUser = """
-    Left: reference photo. Right: four renders of the current procedural model. \
-    Score it and return the JSON verdict.
-    """
+    public static func reviewUser(spec: String) -> String {
+        """
+        Left: reference photo. Right: four renders of the current procedural model. \
+        Score it and return the JSON verdict.
+
+        SPEC:
+        \(spec)
+        """
+    }
 
     // MARK: - Stage 4: pairwise gate (vision slot)
 
@@ -188,17 +207,26 @@ public enum SculptPrompts {
     You are a strict 3D visual QA judge. You receive two comparison sheets for \
     the SAME reference photo. Each sheet shows the reference photo on the left \
     and four labeled renders of a procedural model on the right. The first image \
-    is model A, the second image is model B.
+    is model A, the second image is model B. You also receive the build SPEC \
+    JSON both models target: the spec is authoritative, and where it deliberately \
+    goes beyond what the photo can show (interior parts, an open state, the \
+    hidden side), fidelity to the spec wins - never count those parts against a \
+    model.
 
-    Decide which model matches the reference photo better overall, weighing \
-    silhouette and proportions, component structure, form detail, and materials.
+    Decide which model matches the target better overall, weighing silhouette \
+    and proportions, component structure, form detail, and materials.
 
     Respond with ONLY a JSON object, no prose, no markdown fences:
     {"winner": "A" or "B", "reason": "one concrete sentence"}
     """
 
-    public static let pairwiseUser = """
-    First image: model A. Second image: model B. Same reference photo in both. \
-    Which model matches the reference better? Return the JSON verdict.
-    """
+    public static func pairwiseUser(spec: String) -> String {
+        """
+        First image: model A. Second image: model B. Same reference photo in both. \
+        Which model matches the target better? Return the JSON verdict.
+
+        SPEC:
+        \(spec)
+        """
+    }
 }

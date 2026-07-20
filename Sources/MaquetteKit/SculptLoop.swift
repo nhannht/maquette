@@ -279,7 +279,7 @@ public final class SculptLoop {
             }
 
             onEvent(.stage("review (vision slot)"))
-            let review = try await makeReview(sheetPNG: sheet)
+            let review = try await makeReview(sheetPNG: sheet, spec: spec)
             let reviewJSON = try JSONSerialization.data(
                 withJSONObject: ["overallScore": review.overallScore,
                                  "layerScores": review.layerScores ?? [:],
@@ -295,7 +295,8 @@ public final class SculptLoop {
             if let incumbent = best {
                 onEvent(.stage("pairwise vs best (vision slot)"))
                 let (challengerWon, reason) = try await makePairwise(
-                    incumbentSheet: incumbent.sheet, challengerSheet: sheet)
+                    incumbentSheet: incumbent.sheet, challengerSheet: sheet,
+                    spec: spec)
                 let pairwiseJSON = try JSONSerialization.data(
                     withJSONObject: ["challengerWon": challengerWon, "reason": reason],
                     options: [.prettyPrinted, .sortedKeys])
@@ -407,14 +408,14 @@ public final class SculptLoop {
         return json
     }
 
-    private func makeReview(sheetPNG: Data) async throws -> ReviewResult {
+    private func makeReview(sheetPNG: Data, spec: String) async throws -> ReviewResult {
         let result = try await config.vision.client.completeOnce(
             model: config.vision.modelID,
             messages: [
                 ChatMessage(role: .system, text: SculptPrompts.reviewSystem),
                 ChatMessage(role: .user, content: [
                     .imagePNG(sheetPNG),
-                    .text(SculptPrompts.reviewUser),
+                    .text(SculptPrompts.reviewUser(spec: spec)),
                 ]),
             ],
             temperature: SculptPrompts.reviewTemperature,
@@ -432,7 +433,8 @@ public final class SculptLoop {
 
     /// Head-to-head verdict between the incumbent's sheet and the challenger's.
     /// A/B order is randomized per call to neutralize the judge's position bias.
-    private func makePairwise(incumbentSheet: Data, challengerSheet: Data)
+    private func makePairwise(incumbentSheet: Data, challengerSheet: Data,
+                              spec: String)
         async throws -> (challengerWon: Bool, reason: String) {
         let incumbentFirst = Bool.random()
         let result = try await config.vision.client.completeOnce(
@@ -442,7 +444,7 @@ public final class SculptLoop {
                 ChatMessage(role: .user, content: [
                     .imagePNG(incumbentFirst ? incumbentSheet : challengerSheet),
                     .imagePNG(incumbentFirst ? challengerSheet : incumbentSheet),
-                    .text(SculptPrompts.pairwiseUser),
+                    .text(SculptPrompts.pairwiseUser(spec: spec)),
                 ]),
             ],
             temperature: SculptPrompts.pairwiseTemperature,
