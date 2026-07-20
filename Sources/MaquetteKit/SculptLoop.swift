@@ -62,20 +62,29 @@ public struct SlotUsage {
     }
 }
 
-/// Starting incumbent for a resumed run: the previous run's best model
-/// becomes cycle 0 and every new cycle must beat it through the pairwise
-/// gate. Lets the user keep refining past an accepted score.
+/// Starting incumbent for a resumed session: the best model so far stays the
+/// incumbent under its original cycle number, cycle numbering continues after
+/// `cyclesRun`, and the same outDir keeps growing - every cycle of every
+/// session stays on disk and exportable.
 public struct SculptSeed {
     public let spec: String
     public let code: String
     public let review: ReviewResult
     public let sheet: Data
+    /// The incumbent's original cycle number.
+    public let bestCycle: Int
+    /// Cycles already run in this session's directory; the next cycle is
+    /// `cyclesRun + 1`.
+    public let cyclesRun: Int
 
-    public init(spec: String, code: String, review: ReviewResult, sheet: Data) {
+    public init(spec: String, code: String, review: ReviewResult, sheet: Data,
+                bestCycle: Int, cyclesRun: Int) {
         self.spec = spec
         self.code = code
         self.review = review
         self.sheet = sheet
+        self.bestCycle = bestCycle
+        self.cyclesRun = cyclesRun
     }
 }
 
@@ -83,8 +92,9 @@ public struct SculptOutcome {
     public let accepted: Bool
     public let finalScore: Double
     public let cyclesRun: Int
-    /// Which cycle produced the exported model: nil when none was reviewable,
-    /// 0 when a resumed run's seed was never beaten.
+    /// Which cycle produced the exported model: nil when none was reviewable.
+    /// On resumed sessions this can name a cycle from an earlier round when
+    /// the seed was never beaten - numbering is continuous per session.
     public let bestCycle: Int?
     public let finalFactory: String
     /// The best model's review and the spec in force at the end - everything
@@ -248,16 +258,18 @@ public final class SculptLoop {
         var history: [Int: (code: String, review: ReviewResult, sheet: Data)] = [:]
         var lastRegressed = false
         var freshBuild = true
-        var cyclesRun = 0
+        var cyclesRun = seed?.cyclesRun ?? 0
 
         var spec: String
         var brief: String?
         if let seed {
-            // Resumed run: the seed is the incumbent, no spec call needed and
-            // no brief gate - the user just asked to keep refining.
+            // Resumed session: the seed is the incumbent under its original
+            // cycle number, no spec call needed and no brief gate - the user
+            // just asked to keep refining.
             spec = seed.spec
-            best = (cycle: 0, code: seed.code, review: seed.review, sheet: seed.sheet)
-            history[0] = (seed.code, seed.review, seed.sheet)
+            best = (cycle: seed.bestCycle, code: seed.code, review: seed.review,
+                    sheet: seed.sheet)
+            history[seed.bestCycle] = (seed.code, seed.review, seed.sheet)
             freshBuild = false
             try write(seed.sheet, name: "seed-comparison.png")
             onEvent(.stage("resuming from previous best (score "
@@ -290,9 +302,10 @@ public final class SculptLoop {
         var userAccepted = false
         if let seed {
             let decision = await gate.reviewCycle(SculptCycleSnapshot(
-                cycle: 0, review: seed.review, challengerWon: nil, bestCycle: 0,
+                cycle: 0, review: seed.review, challengerWon: nil,
+                bestCycle: seed.bestCycle,
                 bestScore: seed.review.overallScore, spec: spec,
-                availableCycles: [0]))
+                availableCycles: [seed.bestCycle]))
             if let edited = decision.critique, edited != seed.review.critique {
                 critiqueOverride = edited
                 try write(edited, name: "seed-critique-edited.txt")
@@ -304,7 +317,10 @@ public final class SculptLoop {
             userAccepted = decision.action == .acceptNow
         }
 
-        for cycle in 1...config.maxCycles {
+        // Cycle numbering continues across resumed sessions; each session
+        // gets a fresh budget of maxCycles on top of what already ran.
+        let firstCycle = (seed?.cyclesRun ?? 0) + 1
+        for cycle in firstCycle..<(firstCycle + config.maxCycles) {
             if userAccepted { break }
             cyclesRun = cycle
             onEvent(.cycleStart(cycle))

@@ -53,6 +53,9 @@ final class SculptViewModel {
     var currentStage = ""
     var startedAt: Date?
     var cycles: [CycleRecord] = []
+    /// Absolute cycle ceiling of the current session: grows by maxCycles on
+    /// every Keep Refining round (numbering is continuous).
+    var cycleCap = SculptViewModel.maxCycles
     /// Set after a run that produced a best model: fuels "Keep refining".
     var resumeSeed: SculptSeed?
     /// Non-nil while the loop waits for the user to confirm the suggested
@@ -85,23 +88,37 @@ final class SculptViewModel {
 
     func run(photo: URL, coder: ModelSlotConfig, vision: ModelSlotConfig,
              coderSeesRenders: Bool = true,
-             autoContinue: @escaping () -> Bool = { false },
-             seed: SculptSeed? = nil) {
+             autoContinue: @escaping () -> Bool = { false }) {
         guard phase != .running else { return }
         reset()
-        phase = .running
         photoURL = photo
         photoImage = NSImage(contentsOf: photo)
+        self.autoContinue = autoContinue
+        begin(photo: photo, coder: coder, vision: vision,
+              coderSeesRenders: coderSeesRenders, seed: nil)
+    }
+
+    private func begin(photo: URL, coder: ModelSlotConfig,
+                       vision: ModelSlotConfig, coderSeesRenders: Bool,
+                       seed: SculptSeed?) {
+        phase = .running
         startedAt = Date()
         currentStage = "starting"
-        self.autoContinue = autoContinue
+        cycleCap = (seed?.cyclesRun ?? 0) + Self.maxCycles
 
         runTask = Task { @MainActor in
             let harness = RenderHarness()
             defer { harness.shutdown() }
             do {
-                let outDir = try Self.makeRunDir(photo: photo)
-                self.outDir = outDir
+                // A resumed session keeps growing the same directory so every
+                // cycle of every round stays on disk, numbered continuously.
+                let outDir: URL
+                if let existing = self.outDir {
+                    outDir = existing
+                } else {
+                    outDir = try Self.makeRunDir(photo: photo)
+                    self.outDir = outDir
+                }
                 try await harness.start()
                 let config = SculptConfig(coder: coder, vision: vision,
                                           threshold: Self.threshold,
@@ -116,12 +133,24 @@ final class SculptViewModel {
                 }
                 finish(outcome)
             } catch is CancellationError {
-                phase = .idle
+                settle(afterCancelSeeded: seed != nil)
             } catch let error as URLError where error.code == .cancelled {
-                phase = .idle
+                settle(afterCancelSeeded: seed != nil)
             } catch {
                 phase = .failed(String(describing: error))
             }
+        }
+    }
+
+    /// A cancelled fresh run returns to the drop zone; a cancelled refining
+    /// round falls back to the previous completed state - its cards, model,
+    /// and Keep Refining button all still stand.
+    private func settle(afterCancelSeeded seeded: Bool) {
+        if seeded {
+            cycles.removeAll { $0.review == nil }
+            phase = .done
+        } else {
+            phase = .idle
         }
     }
 
@@ -168,7 +197,7 @@ final class SculptViewModel {
                 // screen takes over; Keep Refining reopens the wheel). A
                 // seeded run never ends on the judge's score - the user
                 // resumed past it deliberately, so only their word stops it.
-                let lastCycle = snapshot.cycle >= Self.maxCycles
+                let lastCycle = snapshot.cycle >= self.cycleCap
                 let freshRunEnding = !seeded
                     && (snapshot.bestScore >= Self.threshold
                         || snapshot.review.action == "stop"
@@ -280,27 +309,28 @@ final class SculptViewModel {
             scene = try? SCNScene(url: usdzURL)
             scene?.background.contents = NSColor(calibratedWhite: 0.12, alpha: 1.0)
         }
-        if let review = outcome.bestReview, !outcome.finalFactory.isEmpty, let outDir {
-            let sheetName = outcome.bestCycle == 0
-                ? "seed-comparison.png"
-                : "cycle-\(outcome.bestCycle ?? 0)/comparison.png"
+        if let review = outcome.bestReview, let best = outcome.bestCycle,
+           !outcome.finalFactory.isEmpty, let outDir {
+            let sheetName = "cycle-\(best)/comparison.png"
             if let sheet = try? Data(contentsOf: outDir.appendingPathComponent(sheetName)) {
                 resumeSeed = SculptSeed(spec: outcome.finalSpec,
                                         code: outcome.finalFactory,
-                                        review: review, sheet: sheet)
+                                        review: review, sheet: sheet,
+                                        bestCycle: best,
+                                        cyclesRun: outcome.cyclesRun)
             }
         }
         phase = .done
     }
 
-    /// Resume from the best model: it becomes cycle 0's incumbent and new
-    /// cycles must beat it through the pairwise gate.
+    /// Continue the same session: the best model stays the incumbent under
+    /// its original cycle number, cards and artifacts keep accumulating, and
+    /// new cycles must beat it through the pairwise gate.
     func keepRefining(coder: ModelSlotConfig, vision: ModelSlotConfig,
                       coderSeesRenders: Bool) {
         guard phase == .done, let photoURL, let resumeSeed else { return }
-        run(photo: photoURL, coder: coder, vision: vision,
-            coderSeesRenders: coderSeesRenders, autoContinue: autoContinue,
-            seed: resumeSeed)
+        begin(photo: photoURL, coder: coder, vision: vision,
+              coderSeesRenders: coderSeesRenders, seed: resumeSeed)
     }
 
     private func reset() {
@@ -311,6 +341,7 @@ final class SculptViewModel {
         currentStage = ""
         startedAt = nil
         cycles = []
+        cycleCap = Self.maxCycles
         resumeSeed = nil
         pendingBrief = nil
         cycleGate = nil

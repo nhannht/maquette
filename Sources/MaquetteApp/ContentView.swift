@@ -188,9 +188,11 @@ struct ContentView: View {
                             .buttonStyle(.link)
                             .font(.caption)
                     }
-                    // Only while the run waits between cycles: the human eye
+                    // Only while the run waits between cycles, and only for
+                    // cycles the loop can actually restore: the human eye
                     // outranks the pairwise judge on which model carries on.
-                    if vm.cycleGate != nil {
+                    if let gate = vm.cycleGate,
+                       gate.snapshot.availableCycles.contains(cycle.id) {
                         if cycle.id == vm.cycleGate?.selectedBase {
                             Text("base")
                                 .font(.caption.weight(.semibold))
@@ -283,7 +285,7 @@ struct ContentView: View {
                         if vm.cycleGate != nil {
                             cycleGateControls
                         } else {
-                            Text("Cycle \(vm.cycles.last?.id ?? 1) of up to \(SculptViewModel.maxCycles)")
+                            Text("Cycle \(vm.cycles.last?.id ?? 1) of up to \(vm.cycleCap)")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                             if let started = vm.startedAt {
@@ -382,8 +384,7 @@ struct ContentView: View {
                     .font(.title3.monospacedDigit().weight(.semibold))
                     .foregroundStyle(vm.accepted ? .green : .orange)
                 if let bestCycle = vm.bestCycle {
-                    Text(bestCycle == 0 ? "previous best kept"
-                                        : "cycle \(bestCycle) of \(vm.cycles.count)")
+                    Text("cycle \(bestCycle) of \(vm.cycles.count)")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
