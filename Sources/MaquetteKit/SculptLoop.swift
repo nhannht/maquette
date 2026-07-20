@@ -16,9 +16,10 @@ public struct SculptConfig {
     /// multimodal coder (gemini, kimi); turn off for text-only coders like
     /// qwen3-coder, whose endpoint rejects image parts.
     public var coderSeesRenders: Bool
-    /// What the user wants beyond what the photo shows (interior, open state,
-    /// hidden side). Fed into spec generation; the spec stays the single
-    /// authoritative target for coder and judge alike.
+    /// A ready build brief (headless runs): skips the recognize call and the
+    /// brief gate. The brief may go beyond what the photo shows (interior,
+    /// open state, hidden side); the spec compiled from it is authoritative
+    /// for coder and judge alike.
     public var userIntent: String?
     /// A ready spec (hand-written or from a previous run) that replaces the
     /// spec call entirely on fresh runs. Ignored on seeded runs.
@@ -162,20 +163,20 @@ public struct SculptCycleDecision {
 /// suspend until the user acts. One channel for all modes - no flags inside
 /// the loop.
 public struct SculptGate {
-    /// Review the spec before cycles start (also fires on resumed runs, with
-    /// the seed's spec). Returns the spec to use, edited or unchanged.
-    public var approveSpec: (String) async -> String
+    /// Confirm the suggested build brief before any coder token is spent.
+    /// Returns the brief to use, edited or unchanged.
+    public var approveBrief: (String) async -> String
     /// After each cycle's review, export, and pairwise verdict.
     public var reviewCycle: (SculptCycleSnapshot) async -> SculptCycleDecision
 
-    public init(approveSpec: @escaping (String) async -> String,
+    public init(approveBrief: @escaping (String) async -> String,
                 reviewCycle: @escaping (SculptCycleSnapshot) async -> SculptCycleDecision) {
-        self.approveSpec = approveSpec
+        self.approveBrief = approveBrief
         self.reviewCycle = reviewCycle
     }
 
     public static let autopilot = SculptGate(
-        approveSpec: { $0 },
+        approveBrief: { $0 },
         reviewCycle: { _ in SculptCycleDecision() })
 }
 
@@ -250,8 +251,10 @@ public final class SculptLoop {
         var cyclesRun = 0
 
         var spec: String
+        var brief: String?
         if let seed {
-            // Resumed run: the seed is the incumbent, no spec call needed.
+            // Resumed run: the seed is the incumbent, no spec call needed and
+            // no brief gate - the user just asked to keep refining.
             spec = seed.spec
             best = (cycle: 0, code: seed.code, review: seed.review, sheet: seed.sheet)
             history[0] = (seed.code, seed.review, seed.sheet)
@@ -263,12 +266,22 @@ public final class SculptLoop {
             spec = preset
             onEvent(.stage("using provided spec"))
         } else {
+            // Gate 1: the model suggests a plain-language brief from the
+            // photo, the human confirms or edits it (this is where intent
+            // beyond the photo enters), and the spec is compiled from
+            // photo + brief. Autopilot passes the suggestion through.
+            if let intent = config.userIntent, !intent.isEmpty {
+                brief = intent
+            } else {
+                onEvent(.stage("recognize (vision slot)"))
+                brief = try await makeBrief(subjectPNG: subjectPNG)
+            }
+            brief = await gate.approveBrief(brief ?? "")
+            try write(brief ?? "", name: "brief.txt")
             onEvent(.stage("analyze + spec (vision slot)"))
-            spec = try await makeSpec(subjectPNG: subjectPNG, critique: nil, previousSpec: nil)
+            spec = try await makeSpec(subjectPNG: subjectPNG, critique: nil,
+                                      previousSpec: nil, brief: brief)
         }
-        // Gate 1: the human reads and edits the actual build target before any
-        // coder token is spent. Autopilot returns it unchanged.
-        spec = await gate.approveSpec(spec)
         try write(spec, name: "spec-1.json")
 
         for cycle in 1...config.maxCycles {
@@ -445,7 +458,8 @@ public final class SculptLoop {
             if review.action == "refine-spec" && decision.spec == nil {
                 onEvent(.stage("refine spec (vision slot)"))
                 spec = try await makeSpec(subjectPNG: subjectPNG,
-                                          critique: review.critique, previousSpec: spec)
+                                          critique: review.critique,
+                                          previousSpec: spec, brief: brief)
                 try write(spec, name: "spec-\(cycle + 1).json")
                 code = ""  // spec changed; force a fresh build instead of a patch
                 critique = nil
@@ -509,8 +523,27 @@ public final class SculptLoop {
 
     // MARK: - LLM stages
 
+    /// The plain-language brief the user confirms; the spec compiles from it.
+    private func makeBrief(subjectPNG: Data) async throws -> String {
+        let result = try await config.vision.client.completeOnce(
+            model: config.vision.modelID,
+            messages: [
+                ChatMessage(role: .system, text: SculptPrompts.briefSystem),
+                ChatMessage(role: .user, content: [
+                    .imagePNG(subjectPNG),
+                    .text(SculptPrompts.briefUser),
+                ]),
+            ],
+            temperature: SculptPrompts.briefTemperature,
+            maxTokens: SculptPrompts.briefMaxTokens,
+            reasoningMaxTokens: config.vision.reasoning
+                ? SculptPrompts.briefReasoningMaxTokens : nil)
+        visionUsage.add(result.usage)
+        return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func makeSpec(subjectPNG: Data, critique: String?,
-                          previousSpec: String?) async throws -> String {
+                          previousSpec: String?, brief: String?) async throws -> String {
         let result = try await config.vision.client.completeOnce(
             model: config.vision.modelID,
             messages: [
@@ -519,7 +552,7 @@ public final class SculptLoop {
                     .imagePNG(subjectPNG),
                     .text(SculptPrompts.specUser(critique: critique,
                                                  previousSpec: previousSpec,
-                                                 intent: config.userIntent)),
+                                                 brief: brief)),
                 ]),
             ],
             temperature: SculptPrompts.specTemperature,

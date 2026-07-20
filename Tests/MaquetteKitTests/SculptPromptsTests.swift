@@ -36,20 +36,20 @@ final class SculptPromptsTests: XCTestCase {
         XCTAssertTrue(text.contains("discarded"))
     }
 
-    func testSpecUserCarriesIntent() {
+    func testSpecUserCarriesBrief() {
         let text = SculptPrompts.specUser(
             critique: nil, previousSpec: nil,
-            intent: "the box opens; a pair of earbuds sits inside")
-        XCTAssertTrue(text.contains("USER INTENT"))
+            brief: "the box opens; a pair of earbuds sits inside")
+        XCTAssertTrue(text.contains("BUILD BRIEF"))
         XCTAssertTrue(text.contains("a pair of earbuds sits inside"))
-        XCTAssertTrue(text.contains("even where"))
+        XCTAssertTrue(text.contains("authoritative"))
     }
 
-    func testSpecUserOmitsIntentWhenEmpty() {
+    func testSpecUserOmitsBriefWhenEmpty() {
         XCTAssertFalse(SculptPrompts.specUser(critique: nil, previousSpec: nil,
-                                              intent: "").contains("USER INTENT"))
+                                              brief: "").contains("BUILD BRIEF"))
         XCTAssertFalse(SculptPrompts.specUser(critique: nil, previousSpec: nil)
-            .contains("USER INTENT"))
+            .contains("BUILD BRIEF"))
     }
 
     func testJudgePromptsReceiveSpec() {

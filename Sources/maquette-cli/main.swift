@@ -30,9 +30,9 @@ func usage() -> Never {
     for text-only coder models (e.g. qwen3-coder), which reject image input.
     --coder-no-reasoning / --vision-no-reasoning: do not send the reasoning
     token budget for that slot (for endpoints that reject the field).
-    --intent: what the model must include beyond what the photo shows (interior,
-    open state, hidden side); folded into the spec, judged as authoritative.
-    --spec-file: use this spec JSON verbatim and skip the spec call.
+    --intent: the build brief (skips the recognize call); may go beyond what
+    the photo shows (interior, open state, hidden side) - judged authoritative.
+    --spec-file: use this spec JSON verbatim and skip recognize + spec calls.
     Keys are optional for keyless local endpoints (Ollama, LM Studio).
 
     Keys come from the Keychain (accounts apikey.coder / apikey.vision, set via

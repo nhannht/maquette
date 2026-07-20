@@ -7,6 +7,26 @@ import Foundation
 
 public enum SculptPrompts {
 
+    // MARK: - Stage 0: recognize (vision slot)
+
+    // The human-facing document: a short plain-language brief the user
+    // confirms or edits before any coder token is spent. The spec JSON stays
+    // internal machinery compiled from photo + brief.
+
+    public static let briefTemperature = 0.3
+    public static let briefMaxTokens = 1024
+    public static let briefReasoningMaxTokens = 256
+
+    public static let briefSystem = """
+    You look at one photo of a single object and write a build brief for a \
+    procedural 3D modeler: 2 to 4 plain sentences naming the object and its \
+    identity-defining shape, parts, proportions, colors, and materials. \
+    Describe only what is visible. Respond with ONLY the brief text - no \
+    markdown, no JSON, no preamble.
+    """
+
+    public static let briefUser = "Write the build brief for this object photo."
+
     // MARK: - Stage 1: analyze + spec (vision slot)
 
     public static let specTemperature = 0.3
@@ -38,15 +58,15 @@ public enum SculptPrompts {
     """
 
     public static func specUser(critique: String?, previousSpec: String?,
-                                intent: String? = nil) -> String {
+                                brief: String? = nil) -> String {
         var text = "Analyze this object photo and produce the build spec JSON."
-        if let intent, !intent.isEmpty {
+        if let brief, !brief.isEmpty {
             text += """
-            \n\nUSER INTENT - the user wants the model to include this, even where \
-            the photo cannot show it (interior, open state, hidden side). Translate \
-            it into concrete spec components with sizes and positions, and note in \
-            "hints" which parts come from intent rather than the photo:
-            \(intent)
+            \n\nBUILD BRIEF - approved by the user, authoritative. Where it goes \
+            beyond what the photo can show (interior, open state, hidden side), \
+            follow the brief: translate those parts into concrete components with \
+            sizes and positions, and note in "hints" that they come from the brief:
+            \(brief)
             """
         }
         if let previousSpec, let critique {

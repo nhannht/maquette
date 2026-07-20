@@ -72,16 +72,16 @@ final class SculptLoopTests: XCTestCase {
     }
 
     func testAutopilotGateIsTheZeroValue() async throws {
-        // Autopilot must be indistinguishable from the pre-gate loop: spec
-        // passes through untouched and every decision field defers to the loop.
-        let spec = await SculptGate.autopilot.approveSpec(#"{"object":"box"}"#)
-        XCTAssertEqual(spec, #"{"object":"box"}"#)
+        // Autopilot must be indistinguishable from the pre-gate loop: the
+        // brief passes through untouched and every decision defers to the loop.
+        let brief = await SculptGate.autopilot.approveBrief("a closed white box")
+        XCTAssertEqual(brief, "a closed white box")
 
         let review = try JSONDecoder().decode(ReviewResult.self, from: Data(
             #"{"overallScore":0.5,"critique":"x","action":"refine-code"}"#.utf8))
         let decision = await SculptGate.autopilot.reviewCycle(SculptCycleSnapshot(
             cycle: 1, review: review, challengerWon: nil, bestCycle: 1,
-            bestScore: 0.5, spec: spec, availableCycles: [1]))
+            bestScore: 0.5, spec: #"{"object":"box"}"#, availableCycles: [1]))
         guard case .auto = decision.action else {
             return XCTFail("autopilot must not steer the loop")
         }
