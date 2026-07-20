@@ -38,10 +38,18 @@ photo -> subject lift (DepthCardKit, on-device)
 
 ## Phases (IMG3D-10)
 
-1. DONE-when-merged: scaffold, ChatClient (SSE streaming, multimodal), Keychain,
+1. DONE: scaffold, ChatClient (SSE streaming, multimodal), Keychain,
    settings UI with per-slot test connection.
-2. Render harness: bundled three.js page, factory-code injection, snapshot capture,
+2. DONE: render harness - bundled three.js r185 (min builds served via custom
+   maquette:// scheme, no file:// quirks), offscreen-window WKWebView snapshots,
    comparison sheet compositing.
-3. The loop: 3-stage prompt pack (analyze+spec, codegen, review+score) + controller.
+3. DONE: the loop - 3-stage prompt pack (SculptPrompts) + SculptLoop controller +
+   headless maquette-cli (set-key/render-test/sculpt). Validated on OpenRouter
+   2026-07-20 (IMG3D-11): earbuds ACCEPTED 0.78 in 1 cycle at ~$0.002 with
+   qwen3-coder + qwen3-vl-30b; chest missed threshold on an adversarial
+   two-object screenshot reference. Whole validation under $0.10. Known gaps:
+   reasoning models crash ChatClient (IMG3D-12), multi-object references confuse
+   the loop (IMG3D-13), judge calibration varies by VLM tier.
 4. Export + UX: GLB/USDZ, drop zone with live cycle progression.
-5. Benchmarks (chest, earbuds, portrait) + launch prep (README, GIF, showcase/).
+5. Benchmarks (clean single-object photo set + portrait) + launch prep
+   (README, GIF, showcase/).
