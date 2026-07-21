@@ -167,25 +167,50 @@ public struct SculptCycleDecision {
     }
 }
 
+/// What the loop hands the human at the brief gate: the suggested brief and
+/// the references the run currently holds.
+public struct BriefDraft {
+    public let brief: String
+    public let references: ReferenceSet
+
+    public init(brief: String, references: ReferenceSet) {
+        self.brief = brief
+        self.references = references
+    }
+}
+
+/// The human's answer at the brief gate: the brief to use (edited or not) and
+/// the reference set when they changed it - nil means keep the current one.
+public struct BriefDecision {
+    public var brief: String
+    public var references: ReferenceSet?
+
+    public init(brief: String, references: ReferenceSet? = nil) {
+        self.brief = brief
+        self.references = references
+    }
+}
+
 /// The human-in-the-loop hooks. The loop calls them at its two natural pause
 /// points; autopilot implementations return immediately, interactive ones
 /// suspend until the user acts. One channel for all modes - no flags inside
 /// the loop.
 public struct SculptGate {
     /// Confirm the suggested build brief before any coder token is spent.
-    /// Returns the brief to use, edited or unchanged.
-    public var approveBrief: (String) async -> String
+    /// This is also the input gate: references can change here, before any
+    /// sheet exists.
+    public var approveBrief: (BriefDraft) async -> BriefDecision
     /// After each cycle's review, export, and pairwise verdict.
     public var reviewCycle: (SculptCycleSnapshot) async -> SculptCycleDecision
 
-    public init(approveBrief: @escaping (String) async -> String,
+    public init(approveBrief: @escaping (BriefDraft) async -> BriefDecision,
                 reviewCycle: @escaping (SculptCycleSnapshot) async -> SculptCycleDecision) {
         self.approveBrief = approveBrief
         self.reviewCycle = reviewCycle
     }
 
     public static let autopilot = SculptGate(
-        approveBrief: { $0 },
+        approveBrief: { BriefDecision(brief: $0.brief) },
         reviewCycle: { _ in SculptCycleDecision() })
 }
 
@@ -219,26 +244,15 @@ public final class SculptLoop {
         self.harness = harness
     }
 
-    public func run(photoPath: String, seed: SculptSeed? = nil,
+    public func run(references: ReferenceSet, seed: SculptSeed? = nil,
                     gate: SculptGate = .autopilot,
                     onEvent: (SculptEvent) -> Void) async throws -> SculptOutcome {
         let fm = FileManager.default
         try fm.createDirectory(at: config.outDir, withIntermediateDirectories: true)
-        let photo = try loadCGImage(photoPath)
 
-        // Subject lift is best-effort: a busy background hurts the vision
-        // comparison but a failed mask must not kill the run.
+        var references = references
         onEvent(.stage("subject lift"))
-        var subject = photo
-        do {
-            let mask = try subjectMask(for: photo)
-            let cutoutPath = config.outDir.appendingPathComponent("subject.png").path
-            try saveCutout(photo: photo, mask: mask, to: cutoutPath)
-            subject = try loadCGImage(cutoutPath)
-        } catch {
-            onEvent(.stage("subject lift failed (\(error)), using raw photo"))
-        }
-        let subjectPNG = try Self.pngData(subject)
+        var (subjects, subjectPNGs) = try liftSubjects(references, onEvent: onEvent)
 
         // `code` is transient: it is the previous-code hint fed to the next
         // codegen call, and refine-spec deliberately clears it to force a fresh
@@ -285,12 +299,21 @@ public final class SculptLoop {
                 brief = intent
             } else {
                 onEvent(.stage("recognize (vision slot)"))
-                brief = try await makeBrief(subjectPNG: subjectPNG)
+                brief = try await makeBrief(subjectPNGs: subjectPNGs)
             }
-            brief = await gate.approveBrief(brief ?? "")
+            let decision = await gate.approveBrief(
+                BriefDraft(brief: brief ?? "", references: references))
+            brief = decision.brief
+            // References changed at the gate: re-lift before the spec call.
+            // No sheet exists yet, so nothing downstream needs recomposing.
+            if let updated = decision.references, updated != references {
+                references = updated
+                onEvent(.stage("subject lift (references updated)"))
+                (subjects, subjectPNGs) = try liftSubjects(references, onEvent: onEvent)
+            }
             try write(brief ?? "", name: "brief.txt")
             onEvent(.stage("analyze + spec (vision slot)"))
-            spec = try await makeSpec(subjectPNG: subjectPNG, critique: nil,
+            spec = try await makeSpec(subjectPNGs: subjectPNGs, critique: nil,
                                       previousSpec: nil, brief: brief)
         }
         try write(spec, name: "spec-1.json")
@@ -400,7 +423,7 @@ public final class SculptLoop {
                 try write(png, name: "cycle-\(cycle)/render-\(view.rawValue).png")
             }
 
-            let sheet = try ComparisonSheet.compose(reference: subject, renders: renders)
+            let sheet = try ComparisonSheet.compose(reference: subjects[0], renders: renders)
             try write(sheet, name: "cycle-\(cycle)/comparison.png")
 
             // Every reviewable cycle's model is exported, not just the gate's
@@ -497,7 +520,7 @@ public final class SculptLoop {
             // adapts the best code instead of starting over.
             if review.action == "refine-spec" && decision.spec == nil {
                 onEvent(.stage("refine spec (vision slot)"))
-                spec = try await makeSpec(subjectPNG: subjectPNG,
+                spec = try await makeSpec(subjectPNGs: subjectPNGs,
                                           critique: review.critique,
                                           previousSpec: spec, brief: brief)
                 try write(spec, name: "spec-\(cycle + 1).json")
@@ -561,18 +584,53 @@ public final class SculptLoop {
         return (paths[.glb], paths[.usdz], failure)
     }
 
+    // MARK: - Subject lift
+
+    /// Subject-lifted images for every reference, primary first. Lift is
+    /// best-effort per image: a busy background hurts the vision comparison
+    /// but a failed mask must not kill the run. Originals are copied into the
+    /// run dir (reference-N.*) so a run stays auditable and resumable.
+    private func liftSubjects(_ references: ReferenceSet,
+                              onEvent: (SculptEvent) -> Void)
+        throws -> (images: [CGImage], pngs: [Data]) {
+        var images: [CGImage] = []
+        var pngs: [Data] = []
+        for (index, ref) in references.all.enumerated() {
+            let source = URL(fileURLWithPath: ref.path)
+            let ext = source.pathExtension.isEmpty ? "png" : source.pathExtension
+            let copy = config.outDir.appendingPathComponent("reference-\(index + 1).\(ext)")
+            try? FileManager.default.removeItem(at: copy)
+            try? FileManager.default.copyItem(at: source, to: copy)
+
+            let photo = try loadCGImage(ref.path)
+            var subject = photo
+            do {
+                let mask = try subjectMask(for: photo)
+                let name = index == 0 ? "subject.png" : "subject-\(index + 1).png"
+                let cutoutPath = config.outDir.appendingPathComponent(name).path
+                try saveCutout(photo: photo, mask: mask, to: cutoutPath)
+                subject = try loadCGImage(cutoutPath)
+            } catch {
+                onEvent(.stage("subject lift failed on view \(index + 1) "
+                    + "(\(error)), using raw photo"))
+            }
+            images.append(subject)
+            pngs.append(try Self.pngData(subject))
+        }
+        return (images, pngs)
+    }
+
     // MARK: - LLM stages
 
     /// The plain-language brief the user confirms; the spec compiles from it.
-    private func makeBrief(subjectPNG: Data) async throws -> String {
+    private func makeBrief(subjectPNGs: [Data]) async throws -> String {
         let result = try await config.vision.client.completeOnce(
             model: config.vision.modelID,
             messages: [
                 ChatMessage(role: .system, text: SculptPrompts.briefSystem),
-                ChatMessage(role: .user, content: [
-                    .imagePNG(subjectPNG),
-                    .text(SculptPrompts.briefUser),
-                ]),
+                ChatMessage(role: .user, content:
+                    subjectPNGs.map { ChatContent.imagePNG($0) }
+                    + [.text(SculptPrompts.briefUser)]),
             ],
             temperature: SculptPrompts.briefTemperature,
             maxTokens: SculptPrompts.briefMaxTokens,
@@ -582,18 +640,17 @@ public final class SculptLoop {
         return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func makeSpec(subjectPNG: Data, critique: String?,
+    private func makeSpec(subjectPNGs: [Data], critique: String?,
                           previousSpec: String?, brief: String?) async throws -> String {
         let result = try await config.vision.client.completeOnce(
             model: config.vision.modelID,
             messages: [
                 ChatMessage(role: .system, text: SculptPrompts.specSystem),
-                ChatMessage(role: .user, content: [
-                    .imagePNG(subjectPNG),
-                    .text(SculptPrompts.specUser(critique: critique,
-                                                 previousSpec: previousSpec,
-                                                 brief: brief)),
-                ]),
+                ChatMessage(role: .user, content:
+                    subjectPNGs.map { ChatContent.imagePNG($0) }
+                    + [.text(SculptPrompts.specUser(critique: critique,
+                                                    previousSpec: previousSpec,
+                                                    brief: brief))]),
             ],
             temperature: SculptPrompts.specTemperature,
             maxTokens: SculptPrompts.specMaxTokens,

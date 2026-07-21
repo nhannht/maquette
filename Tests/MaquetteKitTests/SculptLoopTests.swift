@@ -73,9 +73,14 @@ final class SculptLoopTests: XCTestCase {
 
     func testAutopilotGateIsTheZeroValue() async throws {
         // Autopilot must be indistinguishable from the pre-gate loop: the
-        // brief passes through untouched and every decision defers to the loop.
-        let brief = await SculptGate.autopilot.approveBrief("a closed white box")
-        XCTAssertEqual(brief, "a closed white box")
+        // brief passes through untouched, the references stay as they are,
+        // and every decision defers to the loop.
+        let draft = BriefDraft(
+            brief: "a closed white box",
+            references: ReferenceSet(primary: ReferenceImage(path: "/tmp/x.png")))
+        let briefDecision = await SculptGate.autopilot.approveBrief(draft)
+        XCTAssertEqual(briefDecision.brief, "a closed white box")
+        XCTAssertNil(briefDecision.references)
 
         let review = try JSONDecoder().decode(ReviewResult.self, from: Data(
             #"{"overallScore":0.5,"critique":"x","action":"refine-code"}"#.utf8))

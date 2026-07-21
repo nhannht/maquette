@@ -77,7 +77,7 @@ final class SculptViewModel {
     /// Which face of the viewed cycle the result column shows.
     var resultTab: ResultTab = .model
 
-    private var briefContinuation: CheckedContinuation<String, Never>?
+    private var briefContinuation: CheckedContinuation<BriefDecision, Never>?
     private var cycleContinuation: CheckedContinuation<SculptCycleDecision, Never>?
     private var autoContinue: () -> Bool = { false }
 
@@ -136,9 +136,10 @@ final class SculptViewModel {
                                           coderSeesRenders: coderSeesRenders,
                                           outDir: outDir)
                 let loop = SculptLoop(config: config, harness: harness)
-                let outcome = try await loop.run(photoPath: photo.path,
-                                                 seed: seed,
-                                                 gate: makeGate(seeded: seed != nil)) { [weak self] event in
+                let outcome = try await loop.run(
+                    references: ReferenceSet(primary: ReferenceImage(path: photo.path)),
+                    seed: seed,
+                    gate: makeGate(seeded: seed != nil)) { [weak self] event in
                     self?.apply(event)
                 }
                 finish(outcome)
@@ -178,7 +179,7 @@ final class SculptViewModel {
             briefContinuation = nil
             let draft = pendingBrief ?? ""
             pendingBrief = nil
-            cont.resume(returning: draft)
+            cont.resume(returning: BriefDecision(brief: draft))
         }
         if let cont = cycleContinuation {
             cycleContinuation = nil
@@ -197,10 +198,10 @@ final class SculptViewModel {
     private func makeGate(seeded: Bool) -> SculptGate {
         SculptGate(
             approveBrief: { [weak self] draft in
-                guard let self else { return draft }
+                guard let self else { return BriefDecision(brief: draft.brief) }
                 return await withCheckedContinuation { cont in
                     self.currentStage = "confirm the brief"
-                    self.pendingBrief = draft
+                    self.pendingBrief = draft.brief
                     self.briefContinuation = cont
                 }
             },
@@ -239,7 +240,7 @@ final class SculptViewModel {
         briefContinuation = nil
         pendingBrief = nil
         currentStage = "building the spec"
-        cont.resume(returning: brief)
+        cont.resume(returning: BriefDecision(brief: brief))
     }
 
     /// The user decided between cycles. Only what they actually changed

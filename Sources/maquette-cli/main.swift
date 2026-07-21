@@ -19,15 +19,18 @@ func usage() -> Never {
       maquette-cli set-key <coder|vision>
       maquette-cli render-test [--out DIR]
       maquette-cli export <factory.js> [--out DIR]
-      maquette-cli sculpt <photo> --out DIR
+      maquette-cli sculpt <photo> [photo2 photo3 photo4] --out DIR
           [--coder-model ID] [--vision-model ID]
           [--coder-endpoint URL] [--vision-endpoint URL]
           [--cycles N] [--threshold X] [--coder-text-only]
           [--coder-no-reasoning] [--vision-no-reasoning]
           [--intent TEXT] [--spec-file PATH]
 
-    --coder-text-only: do not attach render images to codegen prompts; required
-    for text-only coder models (e.g. qwen3-coder), which reject image input.
+    Extra photos are further views of the SAME object (first photo = primary
+    view); they sharpen the brief, the spec, and the judge's read.
+    --coder-text-only: do not attach reference or render images to codegen
+    prompts; required for text-only coder models (e.g. qwen3-coder), which
+    reject image input.
     --coder-no-reasoning / --vision-no-reasoning: do not send the reasoning
     token budget for that slot (for endpoints that reject the field).
     --intent: the build brief (skips the recognize call); may go beyond what
@@ -162,7 +165,15 @@ func exportFactory(flags: Flags) async throws {
 
 @MainActor
 func sculpt(flags: Flags) async throws {
-    guard let photoPath = flags.positional.dropFirst().first else { usage() }
+    let photos = Array(flags.positional.dropFirst())
+    guard let primaryPath = photos.first else { usage() }
+    guard photos.count <= 1 + ReferenceSet.maxExtras else {
+        fail("at most \(1 + ReferenceSet.maxExtras) photos (1 primary + "
+             + "\(ReferenceSet.maxExtras) extra views)")
+    }
+    let references = ReferenceSet(
+        primary: ReferenceImage(path: primaryPath),
+        extras: photos.dropFirst().map { ReferenceImage(path: $0) })
     guard let outPath = flags.options["out"] else { fail("--out DIR is required") }
     // Missing keys are fine for keyless local endpoints (Ollama, LM Studio);
     // a hosted endpoint without a key fails loudly at the first call.
@@ -204,7 +215,7 @@ func sculpt(flags: Flags) async throws {
     let harness = try await makeHarness()
     defer { harness.shutdown() }
     let loop = SculptLoop(config: config, harness: harness)
-    let outcome = try await loop.run(photoPath: photoPath) { event in
+    let outcome = try await loop.run(references: references) { event in
         switch event {
         case .stage(let name):
             print("  - \(name)")
