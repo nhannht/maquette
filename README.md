@@ -63,7 +63,19 @@ Design choices that matter:
   sits inside" at the brief gate and the judge scores the interior against
   your brief instead of punishing it for not appearing in the photo.
 
-## Getting started
+## Install
+
+Apple Silicon, macOS 14+. The app is signed with a Developer ID and
+notarized by Apple.
+
+```
+brew install --cask nhannht/tap/maquette
+```
+
+Or grab the notarized DMG from
+[Releases](https://github.com/nhannht/maquette/releases).
+
+## Build from source
 
 Requires macOS 14+ and Xcode command line tools.
 
