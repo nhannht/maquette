@@ -1,0 +1,55 @@
+import CopyButton from "./CopyButton";
+
+const BREW = "brew install --cask nhannht/tap/maquette";
+const RELEASES = "https://github.com/nhannht/maquette/releases";
+const GITHUB = "https://github.com/nhannht/maquette";
+
+export default function Install() {
+  return (
+    <section className="section install-section" id="install" aria-labelledby="install-title">
+      <div className="section-head">
+        <p className="eyebrow">Install</p>
+        <h2 id="install-title">Signed, notarized, and one command away.</h2>
+        <p className="section-sub">
+          The app is signed with a Developer ID and notarized by Apple. Apple Silicon, macOS 14
+          or later.
+        </p>
+      </div>
+
+      <div className="install-grid">
+        <article className="paper-card install-card install-primary">
+          <h3>Homebrew</h3>
+          <p>The fastest way in. One line, and updates come with your next brew upgrade.</p>
+          <div className="brew-line brew-line-lg">
+            <code>{BREW}</code>
+            <CopyButton text={BREW} label="Copy" className="on-code" />
+          </div>
+        </article>
+
+        <article className="paper-card install-card">
+          <h3>Direct download</h3>
+          <p>Prefer a DMG? Grab the notarized build from GitHub Releases.</p>
+          <a className="btn btn-primary" href={RELEASES} target="_blank" rel="noreferrer noopener">
+            Download the DMG
+          </a>
+        </article>
+
+        <article className="paper-card install-card">
+          <h3>Build from source</h3>
+          <p>
+            Clone the repo, run <code>./build.sh</code>, and you have both the app and the
+            headless <code>maquette-cli</code>. MIT licensed.
+          </p>
+          <a className="btn btn-ghost" href={GITHUB} target="_blank" rel="noreferrer noopener">
+            Read the source
+          </a>
+        </article>
+      </div>
+
+      <p className="install-note">
+        Requirements: Apple Silicon Mac, macOS 14+. Clean, single-object photos on quiet
+        backgrounds sculpt best.
+      </p>
+    </section>
+  );
+}
