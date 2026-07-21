@@ -1,0 +1,91 @@
+/*
+ * Maquette design tokens.
+ * Dark values live in :root (also the no-attribute fallback);
+ * light values override under :root[data-theme="light"].
+ * Label ladder + accents follow the Apple label/accent ladders.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Font stack - never ship SF Pro; the system stack gets SF on Apple devices. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "Segoe UI", Inter, Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  /* Label ladder (3-step). Route ALL text through these. */
+  --label-1: #ffffff;
+  --label-2: rgba(255, 255, 255, 0.55);
+  --label-3: rgba(255, 255, 255, 0.25);
+
+  /* Accent */
+  --accent: #0091ff;
+  --accent-text: #4db4ff; /* AA-safe accent text on dark */
+  --accent-fill: #0091ff; /* non-text fills */
+  --accent-contrast: #ffffff;
+
+  /* Surfaces */
+  --page-bg: #0b0b0f;
+  --card-backing: #16161c;
+  --card-backing-2: #101015;
+  --hairline: rgba(255, 255, 255, 0.1);
+  --hairline-strong: rgba(255, 255, 255, 0.16);
+
+  /* Glass (nav pill only) */
+  --glass-bg: rgba(22, 22, 28, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-highlight: rgba(255, 255, 255, 0.12);
+  --glass-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
+
+  /* Effect tints */
+  --spotlight: rgba(255, 255, 255, 0.09);
+  --glow: rgba(0, 145, 255, 0.5);
+  --terracotta: #d97e52; /* brand accent from the app icon */
+  --gold: #e9b564;
+
+  /* Radii family */
+  --r-pill: 28px;
+  --r-card: 26px;
+  --r-button: 18px;
+  --r-chip: 12px;
+
+  /* Page background: layered radial gradients over the base color. */
+  --bg-gradients:
+    radial-gradient(1100px 720px at 78% -8%, rgba(0, 145, 255, 0.14), transparent 60%),
+    radial-gradient(900px 700px at 8% 8%, rgba(137, 90, 255, 0.12), transparent 58%),
+    radial-gradient(1200px 900px at 50% 112%, rgba(217, 126, 82, 0.1), transparent 62%);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --label-1: #1d1d1f;
+  --label-2: rgba(29, 29, 31, 0.64);
+  --label-3: rgba(29, 29, 31, 0.35);
+
+  --accent: #0066cc;
+  --accent-text: #0066cc; /* darkened for AA on silver */
+  --accent-fill: #0091ff; /* bright fill, white label stays AA at 0.9 alpha */
+  --accent-contrast: #ffffff;
+
+  --page-bg: #ececef;
+  --card-backing: #ffffff;
+  --card-backing-2: #f6f6f8;
+  --hairline: rgba(0, 0, 0, 0.1);
+  --hairline-strong: rgba(0, 0, 0, 0.14);
+
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.7);
+  --glass-shadow: 0 8px 40px rgba(15, 20, 40, 0.14);
+
+  --spotlight: rgba(0, 0, 0, 0.05);
+  --glow: rgba(0, 102, 204, 0.35);
+  --terracotta: #c96f4a;
+  --gold: #c98a2a;
+
+  --bg-gradients:
+    radial-gradient(1100px 720px at 80% -6%, rgba(0, 145, 255, 0.16), transparent 58%),
+    radial-gradient(900px 720px at 6% 6%, rgba(137, 90, 255, 0.12), transparent 56%),
+    radial-gradient(1200px 900px at 50% 114%, rgba(217, 126, 82, 0.12), transparent 60%);
+}
