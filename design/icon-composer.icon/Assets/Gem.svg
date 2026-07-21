@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="401px" height="454px" viewBox="0 0 401 454" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Gem</title>
+    <defs>
+        <polygon id="path-1" points="164.5 0 0 95 0 285 164.5 380 329 285 329 95"></polygon>
+        <filter x="-17.0%" y="-11.1%" width="140.1%" height="134.9%" filterUnits="objectBoundingBox" id="filter-2">
+            <feMorphology radius="1" operator="dilate" in="SourceAlpha" result="shadowSpreadOuter1"></feMorphology>
+            <feOffset dx="10" dy="24" in="shadowSpreadOuter1" result="shadowOffsetOuter1"></feOffset>
+            <feGaussianBlur stdDeviation="17" in="shadowOffsetOuter1" result="shadowBlurOuter1"></feGaussianBlur>
+            <feColorMatrix values="0 0 0 0 0.156862745   0 0 0 0 0.0784313725   0 0 0 0 0.031372549  0 0 0 0.549019608 0" type="matrix" in="shadowBlurOuter1"></feColorMatrix>
+        </filter>
+    </defs>
+    <g id="App-Icon" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon/Default-1024" transform="translate(-424, -407)">
+            <g id="Gem" transform="translate(450, 420)">
+                <g id="silhouette-shadow">
+                    <use fill="black" fill-opacity="1" filter="url(#filter-2)" xlink:href="#path-1"></use>
+                    <use fill="#7E3A22" fill-rule="evenodd" xlink:href="#path-1"></use>
+                </g>
+                <polygon id="facet-top-left" fill="#E9B564" points="116.5 137 164.5 0 0 95"></polygon>
+                <polygon id="facet-left" fill="#E8A075" points="116.5 137 0 95 0 285"></polygon>
+                <polygon id="facet-bottom-left" fill="#C96F4A" points="116.5 137 0 285 164.5 380"></polygon>
+                <polygon id="facet-bottom-right" fill="#A34F31" points="116.5 137 164.5 380 330 285"></polygon>
+                <polygon id="facet-right" fill="#8F4227" points="116.5 137 330 285 330 95"></polygon>
+                <polygon id="facet-top-right" fill="#D97E52" points="116.5 137 330 95 164.5 0"></polygon>
+            </g>
+        </g>
+    </g>
+</svg>

@@ -50,6 +50,34 @@ open state) are scored against the spec, never punished against the photo.
   v1.1, not v1.
 - No new geometry features before the repo is public (user directive 2026-07-20).
 
+## Design (source of truth: design/maquette.sketch)
+
+The app icon design lives in `design/maquette.sketch` - that file is the design
+source of truth; keep this structure map in sync with structural changes.
+
+- Page "App Icon"
+  - Frame "Icon/Default 1024" (done): source artwork + light preview
+- Concept: a photo card holding a flat pale hexagon subject, with the same
+  subject popping out front as a low-poly terracotta gem (photo -> 3D story).
+- Final icon pipeline: Apple Icon Composer. It generates dark/tinted variants
+  from the layered source art, so the Sketch file carries NO dark variant -
+  only the source glyph layers (Photo Card group, Gem group) and a light
+  composite preview. The squircle background in the frame is preview-only;
+  Icon Composer supplies the real background.
+- Components: `App Icons/Custom/Default` from the Apple macOS 27 UI Kit is kept
+  in the frame as a hidden icon-grid alignment template. The kit ships no blank
+  squircle-background component (its Custom symbol is only the grid bitmap), so
+  the preview squircle is hand-built: 1024 rounded rect, radius 232.
+- Palette: terracotta facets #E8A075/#D97E52/#C96F4A/#A34F31/#8F4227, gold
+  highlight facet #E9B564 (brand gold), photo blues #AFC6DA->#6E8CA8, flat
+  subject #D3E0EB, card white #FBFAF7; preview squircle #F8F8FA->#E7E7ED.
+- Final icon home: `design/icon-composer.icon/` (Icon Composer project).
+  Assets/Gem.svg + Assets/Photo Card.svg are the glyph groups exported from
+  the Sketch frame; icon.json layers the Gem (glass on) over the Photo Card
+  on an extended-gray gradient fill. After any glyph edit in Sketch,
+  re-export both groups as SVG into Assets/ with the same filenames.
+- `design/icon-default-1024.png` is the composite marketing preview only.
+
 ## Build and test
 
 - Build: `./build.sh 2>&1 | tail -20` - builds AND signs both executables with

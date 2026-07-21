@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="585px" height="490px" viewBox="0 0 585 490" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Photo Card</title>
+    <defs>
+        <rect id="path-1" x="0" y="0" width="470" height="360" rx="28"></rect>
+        <filter x="-10.6%" y="-11.1%" width="121.3%" height="127.8%" filterUnits="objectBoundingBox" id="filter-2">
+            <feOffset dx="0" dy="10" in="SourceAlpha" result="shadowOffsetOuter1"></feOffset>
+            <feGaussianBlur stdDeviation="15" in="shadowOffsetOuter1" result="shadowBlurOuter1"></feGaussianBlur>
+            <feColorMatrix values="0 0 0 0 0.117647059   0 0 0 0 0.156862745   0 0 0 0 0.235294118  0 0 0 0.301960784 0" type="matrix" in="shadowBlurOuter1"></feColorMatrix>
+        </filter>
+        <linearGradient x1="50%" y1="0%" x2="50%" y2="100%" id="linearGradient-3">
+            <stop stop-color="#AFC6DA" offset="0%"></stop>
+            <stop stop-color="#6E8CA8" offset="100%"></stop>
+        </linearGradient>
+    </defs>
+    <g id="App-Icon" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon/Default-1024" transform="translate(-169, -185)">
+            <g id="Photo-Card" transform="translate(460, 420) rotate(-8) translate(-460, -420)translate(225, 240)">
+                <g id="card">
+                    <use fill="black" fill-opacity="1" filter="url(#filter-2)" xlink:href="#path-1"></use>
+                    <use fill="#FBFAF7" fill-rule="evenodd" xlink:href="#path-1"></use>
+                </g>
+                <rect id="image" fill="url(#linearGradient-3)" x="30" y="30" width="410" height="300" rx="10"></rect>
+                <polygon id="flat-subject" fill="#D3E0EB" points="335 70 261.4 112.5 261.4 197.5 335 240 408.6 197.5 408.6 112.5"></polygon>
+            </g>
+        </g>
+    </g>
+</svg>

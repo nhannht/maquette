@@ -1,0 +1,62 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "extended-gray:1.00000,1.00000",
+      "extended-gray:0.75000,1.00000"
+    ],
+    "orientation" : {
+      "start" : {
+        "x" : 0.5,
+        "y" : 0
+      },
+      "stop" : {
+        "x" : 0.5,
+        "y" : 0.7
+      }
+    }
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "glass" : true,
+          "image-name" : "Gem.svg",
+          "name" : "Gem",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              151.74485038667217,
+              115.79009590868964
+            ]
+          }
+        },
+        {
+          "image-name" : "Photo Card.svg",
+          "name" : "Photo Card",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              -51.60156249999994,
+              -64.45703125
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
