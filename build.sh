@@ -18,10 +18,11 @@
 # on Swift Float16, which does not exist on x86_64 - Intel support would need
 # a vImage half-float conversion there), signs it with the Developer ID
 # Application certificate + hardened runtime,
-# packs it into .build/dist/Maquette-<version>.dmg, and - when a notarytool
-# keychain profile exists (default name maquette-notary, override with
-# NOTARY_PROFILE) - submits, waits, and staples. Create the profile once with
-# `xcrun notarytool store-credentials` (Apple ID + app-specific password).
+# notarizes and staples the app (via zip) BEFORE packing it into
+# .build/dist/Maquette-<version>.dmg, then notarizes and staples the DMG too.
+# Needs a notarytool keychain profile (default name maquette-notary, override
+# with NOTARY_PROFILE); create it once with `xcrun notarytool store-credentials`
+# (Apple ID + app-specific password).
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -98,16 +99,82 @@ make_app() {
 PLIST
 }
 
+# Submit for notarization under caffeinate (idle sleep kills uploads) and
+# WITHOUT --wait: notarytool prints the submission id before the upload
+# finishes, so a dead upload leaves a phantom id that never resolves. The id
+# is only trustworthy once it appears in `history` (= Apple has the bytes);
+# then poll `info` for the verdict. "does not exist" is a dead id - resubmit,
+# never wait on it.
+notarize_file() {
+    local FILE=$1 OUT ID I
+    OUT=$(caffeinate -i xcrun notarytool submit "$FILE" \
+        --keychain-profile "$PROFILE" 2>&1) || { echo "$OUT"; return 1; }
+    ID=$(echo "$OUT" | awk '/^  id: /{print $2; exit}')
+    if [ -z "$ID" ]; then
+        echo "$OUT"
+        echo "no submission id in notarytool output"
+        return 1
+    fi
+    sleep 3
+    if ! xcrun notarytool history --keychain-profile "$PROFILE" 2>/dev/null \
+            | grep -q "$ID"; then
+        echo "submission $ID never registered in history - the upload died; rerun"
+        return 1
+    fi
+    for I in $(seq 1 160); do
+        OUT=$(xcrun notarytool info "$ID" --keychain-profile "$PROFILE" 2>&1) || true
+        case "$OUT" in
+            *"status: Accepted"*)
+                echo "notarized: $FILE ($ID)"
+                return 0 ;;
+            *"status: Invalid"*|*"status: Rejected"*)
+                xcrun notarytool log "$ID" --keychain-profile "$PROFILE"
+                return 1 ;;
+            *"does not exist"*)
+                echo "submission $ID vanished (upload swept) - rerun"
+                return 1 ;;
+            *"No Keychain password item"*)
+                echo "login keychain relocked - run: security unlock-keychain" \
+                     "~/Library/Keychains/login.keychain-db"
+                return 1 ;;
+            *) sleep 15 ;;  # In Progress or a transient poll error
+        esac
+    done
+    echo "no verdict for $ID after 40 min - check developer.apple.com/system-status"
+    return 1
+}
+
 if [ "$MODE" = release ]; then
     DEVID="${DEVELOPER_ID_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Developer ID Application/ {print $2; exit}')}"
     if [ -z "$DEVID" ]; then
         echo "release needs a Developer ID Application certificate (none found)"
         exit 1
     fi
+    PROFILE="${NOTARY_PROFILE:-maquette-notary}"
+    if ! xcrun notarytool history --keychain-profile "$PROFILE" > /dev/null 2>&1; then
+        echo "notary profile '$PROFILE' not found - create it once with:"
+        echo "  xcrun notarytool store-credentials $PROFILE --apple-id <apple-account-email> --team-id <team-id>"
+        echo "then rerun: ./build.sh release"
+        exit 1
+    fi
     DIST=.build/dist
     mkdir -p "$DIST"
     make_app "$DIST/Maquette.app" "$BINDIR"
     codesign -f --options runtime --timestamp -s "$DEVID" "$DIST/Maquette.app"
+
+    # Notarize + staple the app BEFORE the DMG is built: the DMG is immutable,
+    # so an app stapled afterwards would ship ticketless and fail offline
+    # Gatekeeper checks. The zip is upload packaging only; the ticket staples
+    # to the .app itself.
+    ZIP="$DIST/Maquette.zip"
+    rm -f "$ZIP"
+    ditto -c -k --keepParent "$DIST/Maquette.app" "$ZIP"
+    notarize_file "$ZIP"
+    rm -f "$ZIP"
+    xcrun stapler staple "$DIST/Maquette.app"
+    xcrun stapler validate "$DIST/Maquette.app"
+    spctl -a -vv "$DIST/Maquette.app"
+
     VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" \
         "$DIST/Maquette.app/Contents/Info.plist")
     DMG="$DIST/Maquette-$VERSION.dmg"
@@ -120,20 +187,10 @@ if [ "$MODE" = release ]; then
         "$DMG" > /dev/null
     rm -rf "$STAGE"
     codesign -f --timestamp -s "$DEVID" "$DMG"
-    echo "signed dmg: $DMG"
-
-    PROFILE="${NOTARY_PROFILE:-maquette-notary}"
-    if xcrun notarytool history --keychain-profile "$PROFILE" > /dev/null 2>&1; then
-        xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait
-        xcrun stapler staple "$DMG"
-        xcrun stapler validate "$DMG"
-        echo "notarized and stapled: $DMG"
-    else
-        echo "notary profile '$PROFILE' not found - create it once with:"
-        echo "  xcrun notarytool store-credentials $PROFILE --apple-id <apple-account-email> --team-id <team-id>"
-        echo "then rerun: ./build.sh release"
-        exit 1
-    fi
+    notarize_file "$DMG"
+    xcrun stapler staple "$DMG"
+    xcrun stapler validate "$DMG"
+    echo "notarized and stapled: $DMG"
     exit 0
 fi
 
