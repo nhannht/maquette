@@ -42,10 +42,12 @@ export class ModelViewer {
   private envRT: THREE.WebGLRenderTarget;
 
   private current: THREE.Group | null = null;
+  private currentStates: MatState[] = []; // pristine material state of `current`
   private fading: { group: THREE.Group; states: MatState[]; dir: 1 | -1 }[] = [];
   private fadeStart = 0;
   private fadeDur = 380;
   private fadeActive = false;
+  private loadToken = 0; // guards against out-of-order async loads on rapid swaps
 
   private baseRadius = 3;
   private distanceFactor: number;
@@ -296,25 +298,38 @@ export class ModelViewer {
       const factor = f.dir === 1 ? eased : 1 - eased;
       this.setGroupOpacity(f.states, factor, true);
     }
-    if (k >= 1) {
-      // Finish: restore incoming materials, drop the outgoing group.
-      for (const f of this.fading) {
-        if (f.dir === 1) {
-          this.setGroupOpacity(f.states, 1, false);
-        } else {
-          this.scene.remove(f.group);
-          this.disposeGroup(f.group);
-        }
+    if (k >= 1) this.finalizeFade();
+  }
+
+  /**
+   * End any in-progress fade immediately, leaving exactly one clean model:
+   * the incoming (dir 1) is snapped back to its pristine opaque materials and
+   * every outgoing (dir -1) is removed and disposed. Called on fade completion
+   * and, critically, before starting a new fade so a rapid swap can never leave
+   * an orphaned half-transparent model ghosting in the scene.
+   */
+  private finalizeFade() {
+    for (const f of this.fading) {
+      if (f.dir === 1) {
+        this.setGroupOpacity(f.states, 1, false);
+      } else {
+        this.scene.remove(f.group);
+        this.disposeGroup(f.group);
       }
-      this.fading = [];
-      this.fadeActive = false;
     }
+    this.fading = [];
+    this.fadeActive = false;
   }
 
   async load(url: string): Promise<void> {
+    const token = ++this.loadToken;
     const gltf = await loader().loadAsync(url);
-    if (this.disposed) return;
+    if (this.disposed || token !== this.loadToken) {
+      this.disposeGroup(gltf.scene);
+      return;
+    }
     const group = gltf.scene;
+    this.currentStates = this.collectMats(group); // pristine, before any fade
     this.scene.add(group);
     this.current = group;
     this.frameModel(group);
@@ -323,27 +338,35 @@ export class ModelViewer {
     if (this.onScreen) this.start();
   }
 
-  /** Crossfade from the current model to a new one (timeline scrubbing). */
+  /** Crossfade from the current model to a new one (timeline/gallery swaps). */
   async setModel(url: string): Promise<void> {
+    const token = ++this.loadToken;
     const gltf = await loader().loadAsync(url);
-    if (this.disposed) return;
+    // A newer swap superseded this load, or the viewer is gone: drop it.
+    if (this.disposed || token !== this.loadToken) {
+      this.disposeGroup(gltf.scene);
+      return;
+    }
+    // Collapse any fade still running from the previous swap to a single clean
+    // model before starting the next one - no orphans, no corrupted originals.
+    this.finalizeFade();
+
     const incoming = gltf.scene;
+    const inStates = this.collectMats(incoming); // pristine, before touching
     this.scene.add(incoming);
-    // Match the framing transform of the current model's fit.
     this.frameModel(incoming);
 
     if (this.current) {
-      const outStates = this.collectMats(this.current);
-      const inStates = this.collectMats(incoming);
       this.setGroupOpacity(inStates, 0, true);
       this.fading = [
-        { group: this.current, states: outStates, dir: -1 },
+        { group: this.current, states: this.currentStates, dir: -1 },
         { group: incoming, states: inStates, dir: 1 },
       ];
       this.fadeStart = performance.now();
       this.fadeActive = true;
     }
     this.current = incoming;
+    this.currentStates = inStates;
     this.needsRender = true;
     if (this.onScreen) this.start();
   }
@@ -375,7 +398,9 @@ export class ModelViewer {
     document.removeEventListener("visibilitychange", this.onVisibility);
     this.controls.dispose();
     if (this.current) this.disposeGroup(this.current);
-    for (const f of this.fading) this.disposeGroup(f.group);
+    for (const f of this.fading) {
+      if (f.group !== this.current) this.disposeGroup(f.group);
+    }
     this.envRT.dispose();
     this.pmrem.dispose();
     this.scene.environment = null;
