@@ -401,6 +401,21 @@ final class SculptViewModel {
             guard let index = cycles.firstIndex(where: { $0.id == cycle }) else { return }
             cycles[index].pairwiseWon = challengerWon
             cycles[index].pairwiseReason = reason
+        case .referencesChanged:
+            // Subjects and every comparison sheet were rebuilt on disk against
+            // the new reference set - reload what the cards show.
+            guard let outDir else { return }
+            subjectImage = NSImage(contentsOf:
+                outDir.appendingPathComponent("subject.png"))
+            seedComparison = NSImage(contentsOf:
+                outDir.appendingPathComponent("seed-comparison.png"))
+            for index in cycles.indices {
+                let sheet = outDir.appendingPathComponent(
+                    "cycle-\(cycles[index].id)/comparison.png")
+                if FileManager.default.fileExists(atPath: sheet.path) {
+                    cycles[index].comparison = NSImage(contentsOf: sheet)
+                }
+            }
         }
     }
 

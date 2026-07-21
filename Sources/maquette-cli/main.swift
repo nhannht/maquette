@@ -234,6 +234,8 @@ func sculpt(flags: Flags) async throws {
                 ? "challenger wins, becomes best"
                 : "best model defends, attempt discarded"
             print("  pairwise: \(verdict) - \(reason.prefix(200))")
+        case .referencesChanged:
+            print("  - references changed; comparison sheets rebuilt")
         }
     }
 

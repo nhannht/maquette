@@ -115,6 +115,9 @@ public enum SculptEvent {
     case cycleStart(Int)
     case review(cycle: Int, ReviewResult)
     case pairwise(cycle: Int, challengerWon: Bool, reason: String)
+    /// The reference set changed at a gate: subjects and every stored
+    /// comparison sheet were rebuilt - reload them from disk.
+    case referencesChanged
 }
 
 /// Verdict of the head-to-head gate between the incumbent and a challenger.
@@ -134,6 +137,8 @@ public struct SculptCycleSnapshot {
     public let spec: String
     /// Cycles whose model can be forced incumbent (0 = a resumed run's seed).
     public let availableCycles: [Int]
+    /// The reference set currently in force - the base a gate edit starts from.
+    public let references: ReferenceSet
 }
 
 /// The human's answer at a cycle gate. Every field defaults to "let the loop
@@ -157,13 +162,19 @@ public struct SculptCycleDecision {
     /// Replaces the spec from the next cycle on. The incumbent is kept: the
     /// coder adapts the best code to the new spec rather than starting over.
     public var spec: String?
+    /// Replaces the reference set from the next cycle on: subjects re-lift,
+    /// the spec recompiles (incumbent kept), and every stored sheet is
+    /// rebuilt so pairwise keeps comparing like against like.
+    public var references: ReferenceSet?
 
     public init(action: Action = .auto, critique: String? = nil,
-                forcedIncumbent: Int? = nil, spec: String? = nil) {
+                forcedIncumbent: Int? = nil, spec: String? = nil,
+                references: ReferenceSet? = nil) {
         self.action = action
         self.critique = critique
         self.forcedIncumbent = forcedIncumbent
         self.spec = spec
+        self.references = references
     }
 }
 
@@ -320,6 +331,65 @@ public final class SculptLoop {
         }
         try write(spec, name: "spec-1.json")
 
+        /// A gate decision replaced the reference set: re-lift the subjects,
+        /// recompile the spec against the new views (unless the same decision
+        /// also hand-edited the spec - that edit IS the revision), and rebuild
+        /// every stored sheet from the renders on disk so future pairwise
+        /// verdicts compare like against like. The incumbent code is kept: the
+        /// coder adapts the best model instead of starting over.
+        func applyReferenceChange(_ updated: ReferenceSet, specName: String,
+                                  specEdited: Bool) async throws {
+            references = updated
+            onEvent(.stage("subject lift (references updated)"))
+            (subjects, subjectPNGs) = try liftSubjects(references, onEvent: onEvent)
+            if !specEdited {
+                onEvent(.stage("recompile spec for new references (vision slot)"))
+                spec = try await makeSpec(
+                    subjectPNGs: subjectPNGs,
+                    critique: "the user replaced the reference images; "
+                        + "re-measure every component against the new views",
+                    previousSpec: spec, brief: brief,
+                    extraViews: references.extras.map(\.label))
+                try write(spec, name: specName)
+            }
+            let refs = zip(subjects, references.all).map { ($0, $1.label) }
+            for cycleNumber in history.keys.sorted() {
+                var renders: [(view: RenderView, png: Data)] = []
+                for view in RenderView.allCases {
+                    let path = config.outDir.appendingPathComponent(
+                        "cycle-\(cycleNumber)/render-\(view.rawValue).png")
+                    if let png = try? Data(contentsOf: path) {
+                        renders.append((view, png))
+                    }
+                }
+                guard !renders.isEmpty else {
+                    onEvent(.stage("cycle \(cycleNumber) renders missing, "
+                        + "keeping its old sheet"))
+                    continue
+                }
+                // Archive, then overwrite: comparison.png stays the current
+                // truth for the UI and future judge calls, the old sheet
+                // stays auditable.
+                let current = config.outDir.appendingPathComponent(
+                    "cycle-\(cycleNumber)/comparison.png")
+                let archive = config.outDir.appendingPathComponent(
+                    "cycle-\(cycleNumber)/comparison-pre-refchange.png")
+                if fm.fileExists(atPath: current.path) {
+                    try? fm.removeItem(at: archive)
+                    try? fm.copyItem(at: current, to: archive)
+                }
+                let sheet = try ComparisonSheet.compose(references: refs,
+                                                        renders: renders)
+                try write(sheet, name: "cycle-\(cycleNumber)/comparison.png")
+                history[cycleNumber]?.sheet = sheet
+                if best?.cycle == cycleNumber { best?.sheet = sheet }
+                if seed?.bestCycle == cycleNumber {
+                    try write(sheet, name: "seed-comparison.png")
+                }
+            }
+            onEvent(.referencesChanged)
+        }
+
         // Gate 0, resumed runs only: the user clicked Keep Refining, so hand
         // them the wheel before any token is spent - the judge's last critique
         // is the suggested instruction. acceptNow just re-exports the seed.
@@ -329,7 +399,13 @@ public final class SculptLoop {
                 cycle: 0, review: seed.review, challengerWon: nil,
                 bestCycle: seed.bestCycle,
                 bestScore: seed.review.overallScore, spec: spec,
-                availableCycles: [seed.bestCycle]))
+                availableCycles: [seed.bestCycle],
+                references: references))
+            if let updated = decision.references, updated != references {
+                try await applyReferenceChange(updated,
+                                               specName: "spec-1-refchange.json",
+                                               specEdited: decision.spec != nil)
+            }
             if let edited = decision.critique, edited != seed.review.critique {
                 critiqueOverride = edited
                 try write(edited, name: "seed-critique-edited.txt")
@@ -497,12 +573,18 @@ public final class SculptLoop {
                 cycle: cycle, review: review, challengerWon: pairwiseWon,
                 bestCycle: best?.cycle ?? cycle,
                 bestScore: best?.review.overallScore ?? review.overallScore,
-                spec: spec, availableCycles: history.keys.sorted()))
+                spec: spec, availableCycles: history.keys.sorted(),
+                references: references))
             if let forced = decision.forcedIncumbent, let entry = history[forced] {
                 best = (forced, entry.code, entry.review, entry.sheet)
                 lastRegressed = false
                 try write("human forced cycle \(forced) as incumbent",
                           name: "cycle-\(cycle)/incumbent-override.txt")
+            }
+            if let updated = decision.references, updated != references {
+                try await applyReferenceChange(
+                    updated, specName: "spec-\(cycle + 1)-refchange.json",
+                    specEdited: decision.spec != nil)
             }
             if let editedSpec = decision.spec, editedSpec != spec {
                 spec = editedSpec

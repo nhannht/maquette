@@ -86,13 +86,15 @@ final class SculptLoopTests: XCTestCase {
             #"{"overallScore":0.5,"critique":"x","action":"refine-code"}"#.utf8))
         let decision = await SculptGate.autopilot.reviewCycle(SculptCycleSnapshot(
             cycle: 1, review: review, challengerWon: nil, bestCycle: 1,
-            bestScore: 0.5, spec: #"{"object":"box"}"#, availableCycles: [1]))
+            bestScore: 0.5, spec: #"{"object":"box"}"#, availableCycles: [1],
+            references: draft.references))
         guard case .auto = decision.action else {
             return XCTFail("autopilot must not steer the loop")
         }
         XCTAssertNil(decision.critique)
         XCTAssertNil(decision.forcedIncumbent)
         XCTAssertNil(decision.spec)
+        XCTAssertNil(decision.references)
     }
 
     func testParsePairwiseVerdict() throws {
