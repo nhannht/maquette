@@ -1,8 +1,9 @@
 /*
  * Maquette design tokens.
- * Dark values live in :root (also the no-attribute fallback);
- * light values override under :root[data-theme="light"].
- * Label ladder + accents follow the Apple label/accent ladders.
+ * Dark = macOS "Midnight" (the MacBook Air M5 colorway): deep blue-black navy,
+ * blue-tinted panels, white label ladder. Light = Apple silver (#f5f5f7 family,
+ * white paper, #1d1d1f ladder). Dark lives in :root (also the no-attribute
+ * fallback); light overrides under :root[data-theme="light"].
  */
 
 :root {
@@ -15,33 +16,33 @@
 
   /* Label ladder (3-step). Route ALL text through these. */
   --label-1: #ffffff;
-  --label-2: rgba(255, 255, 255, 0.55);
-  --label-3: rgba(255, 255, 255, 0.25);
+  --label-2: rgba(255, 255, 255, 0.56);
+  --label-3: rgba(255, 255, 255, 0.28);
 
-  /* Accent */
+  /* Accent - blue reads native on Midnight navy */
   --accent: #0091ff;
-  --accent-text: #4db4ff; /* AA-safe accent text on dark */
+  --accent-text: #58b6ff; /* light blue label, AA on navy */
   --accent-fill: #0091ff; /* non-text fills */
   --accent-contrast: #ffffff;
 
-  /* Surfaces */
-  --page-bg: #0b0b0f;
-  --card-backing: #16161c;
-  --card-backing-2: #101015;
-  --hairline: rgba(255, 255, 255, 0.1);
-  --hairline-strong: rgba(255, 255, 255, 0.16);
+  /* Surfaces - Midnight navy base, blue-tinted raised panels */
+  --page-bg: #0a0f1e;
+  --card-backing: #141b2e;
+  --card-backing-2: #10172a;
+  --hairline: rgba(150, 172, 224, 0.12);
+  --hairline-strong: rgba(150, 172, 224, 0.2);
 
-  /* Glass (nav pill only) */
-  --glass-bg: rgba(22, 22, 28, 0.55);
-  --glass-border: rgba(255, 255, 255, 0.14);
-  --glass-highlight: rgba(255, 255, 255, 0.12);
-  --glass-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
+  /* Glass (nav pill only) - blue-tinted frost */
+  --glass-bg: rgba(18, 26, 48, 0.55);
+  --glass-border: rgba(160, 182, 235, 0.16);
+  --glass-highlight: rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
 
   /* Effect tints */
-  --spotlight: rgba(255, 255, 255, 0.09);
+  --spotlight: rgba(120, 160, 255, 0.1);
   --glow: rgba(0, 145, 255, 0.5);
   --terracotta: #d97e52; /* brand accent from the app icon */
-  --gold: #e9b564;
+  --gold: #e9b564; /* brand gold */
 
   /* Radii family */
   --r-pill: 28px;
@@ -49,11 +50,11 @@
   --r-button: 18px;
   --r-chip: 12px;
 
-  /* Page background: layered radial gradients over the base color. */
+  /* Page background: blue Midnight glows over the navy base (no purple). */
   --bg-gradients:
-    radial-gradient(1100px 720px at 78% -8%, rgba(0, 145, 255, 0.14), transparent 60%),
-    radial-gradient(900px 700px at 8% 8%, rgba(137, 90, 255, 0.12), transparent 58%),
-    radial-gradient(1200px 900px at 50% 112%, rgba(217, 126, 82, 0.1), transparent 62%);
+    radial-gradient(1100px 720px at 80% -8%, rgba(0, 120, 255, 0.16), transparent 60%),
+    radial-gradient(950px 700px at 5% 10%, rgba(40, 92, 200, 0.14), transparent 58%),
+    radial-gradient(1200px 900px at 50% 114%, rgba(18, 68, 158, 0.12), transparent 62%);
 }
 
 :root[data-theme="light"] {
@@ -68,24 +69,26 @@
   --accent-fill: #0091ff; /* bright fill, white label stays AA at 0.9 alpha */
   --accent-contrast: #ffffff;
 
-  --page-bg: #ececef;
+  /* Apple silver */
+  --page-bg: #f5f5f7;
   --card-backing: #ffffff;
-  --card-backing-2: #f6f6f8;
+  --card-backing-2: #f0f0f3;
   --hairline: rgba(0, 0, 0, 0.1);
   --hairline-strong: rgba(0, 0, 0, 0.14);
 
-  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-bg: rgba(255, 255, 255, 0.62);
   --glass-border: rgba(0, 0, 0, 0.08);
-  --glass-highlight: rgba(255, 255, 255, 0.7);
-  --glass-shadow: 0 8px 40px rgba(15, 20, 40, 0.14);
+  --glass-highlight: rgba(255, 255, 255, 0.75);
+  --glass-shadow: 0 8px 40px rgba(15, 20, 40, 0.12);
 
   --spotlight: rgba(0, 0, 0, 0.05);
-  --glow: rgba(0, 102, 204, 0.35);
+  --glow: rgba(0, 102, 204, 0.3);
   --terracotta: #c96f4a;
   --gold: #c98a2a;
 
+  /* Silver sheen: bright cool highlight + a soft silver-blue over #f5f5f7. */
   --bg-gradients:
-    radial-gradient(1100px 720px at 80% -6%, rgba(0, 145, 255, 0.16), transparent 58%),
-    radial-gradient(900px 720px at 6% 6%, rgba(137, 90, 255, 0.12), transparent 56%),
-    radial-gradient(1200px 900px at 50% 114%, rgba(217, 126, 82, 0.12), transparent 60%);
+    radial-gradient(1200px 780px at 82% -8%, rgba(255, 255, 255, 0.9), transparent 60%),
+    radial-gradient(1000px 760px at 6% 4%, rgba(210, 220, 236, 0.6), transparent 58%),
+    radial-gradient(1300px 900px at 50% 116%, rgba(226, 229, 238, 0.7), transparent 62%);
 }
