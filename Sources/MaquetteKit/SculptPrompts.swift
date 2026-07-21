@@ -14,8 +14,11 @@ public enum SculptPrompts {
     // internal machinery compiled from photo + brief.
 
     public static let briefTemperature = 0.3
-    public static let briefMaxTokens = 1024
-    public static let briefReasoningMaxTokens = 256
+    /// Stage ceilings are shared by thinking and answer on most providers
+    /// (Moonshot documents max_tokens >= 16000 for K2.5). Thinking is
+    /// uncapped by default, so every LLM stage gets 16384 of headroom;
+    /// only tokens actually spent are billed.
+    public static let briefMaxTokens = 16384
 
     public static let briefSystem = """
     You look at one or more photos of a single object - every photo shows the \
@@ -46,11 +49,7 @@ public enum SculptPrompts {
     // MARK: - Stage 1: analyze + spec (vision slot)
 
     public static let specTemperature = 0.3
-    public static let specMaxTokens = 4096
-    /// Reasoning models spend max_tokens on thinking before any output; uncapped,
-    /// thinking starves the answer entirely (IMG3D-12: 7865 of 8188 tokens).
-    /// Caps are advisory upstream (Gemini overshoots ~2x) but leave enough room.
-    public static let specReasoningMaxTokens = 1024
+    public static let specMaxTokens = 16384
 
     public static let specSystem = """
     You are a 3D reconstruction analyst. You receive one or more photos of a \
@@ -104,12 +103,11 @@ public enum SculptPrompts {
     // MARK: - Stage 2: codegen (coder slot)
 
     public static let codegenTemperature = 0.4
-    /// Shared budget for reasoning + code. The reasoning cap below is advisory:
-    /// Gemini overshoots it up to ~4x (observed 7861 spent on a 2048 ask when an
-    /// image is attached), so the total must absorb the worst overshoot and
-    /// still leave room for a full factory (~3k tokens).
+    /// Shared budget for reasoning + code. Thinking is uncapped by default
+    /// (and a user thinkingCap is advisory upstream anyway - Gemini overshoots
+    /// ~4x), so the total must absorb heavy thinking and still leave room for
+    /// a full factory (~3k tokens); truncation retries double it.
     public static let codegenMaxTokens = 16384
-    public static let codegenReasoningMaxTokens = 2048
 
     public static let codegenSystem = """
     You are a senior three.js procedural modeler (three r185). You receive a build \
@@ -200,8 +198,7 @@ public enum SculptPrompts {
     // MARK: - Stage 3: review (vision slot)
 
     public static let reviewTemperature = 0.2
-    public static let reviewMaxTokens = 2048
-    public static let reviewReasoningMaxTokens = 512
+    public static let reviewMaxTokens = 16384
 
     public static let reviewSystem = """
     You are a strict 3D visual QA judge. You receive one comparison sheet: the \
@@ -253,8 +250,7 @@ public enum SculptPrompts {
     // by a challenger that wins this call.
 
     public static let pairwiseTemperature = 0.1
-    public static let pairwiseMaxTokens = 1024
-    public static let pairwiseReasoningMaxTokens = 512
+    public static let pairwiseMaxTokens = 16384
 
     public static let pairwiseSystem = """
     You are a strict 3D visual QA judge. You receive two comparison sheets for \

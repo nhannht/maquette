@@ -475,8 +475,7 @@ public final class SculptLoop {
                         ],
                         temperature: SculptPrompts.codegenTemperature,
                         maxTokens: Self.codegenBudget(attempt: attempt),
-                        reasoningMaxTokens: config.coder.reasoning
-                            ? SculptPrompts.codegenReasoningMaxTokens : nil)
+                        reasoningMaxTokens: config.coder.thinkingCap)
                     coderUsage.add(result.usage)
                     code = try Self.extractCode(result.text)
                 } catch let error where Self.isRetryableCodegenFailure(error) {
@@ -728,8 +727,7 @@ public final class SculptLoop {
             ],
             temperature: SculptPrompts.briefTemperature,
             maxTokens: SculptPrompts.briefMaxTokens,
-            reasoningMaxTokens: config.vision.reasoning
-                ? SculptPrompts.briefReasoningMaxTokens : nil)
+            reasoningMaxTokens: config.vision.thinkingCap)
         visionUsage.add(result.usage)
         return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -750,8 +748,7 @@ public final class SculptLoop {
             ],
             temperature: SculptPrompts.specTemperature,
             maxTokens: SculptPrompts.specMaxTokens,
-            reasoningMaxTokens: config.vision.reasoning
-                ? SculptPrompts.specReasoningMaxTokens : nil)
+            reasoningMaxTokens: config.vision.thinkingCap)
         visionUsage.add(result.usage)
         guard let json = Self.extractJSON(result.text) else {
             throw SculptLoopError.noSpec(String(result.text.prefix(300)))
@@ -771,8 +768,7 @@ public final class SculptLoop {
             ],
             temperature: SculptPrompts.reviewTemperature,
             maxTokens: SculptPrompts.reviewMaxTokens,
-            reasoningMaxTokens: config.vision.reasoning
-                ? SculptPrompts.reviewReasoningMaxTokens : nil)
+            reasoningMaxTokens: config.vision.thinkingCap)
         visionUsage.add(result.usage)
         guard let json = Self.extractJSON(result.text),
               let data = json.data(using: .utf8),
@@ -800,8 +796,7 @@ public final class SculptLoop {
             ],
             temperature: SculptPrompts.pairwiseTemperature,
             maxTokens: SculptPrompts.pairwiseMaxTokens,
-            reasoningMaxTokens: config.vision.reasoning
-                ? SculptPrompts.pairwiseReasoningMaxTokens : nil)
+            reasoningMaxTokens: config.vision.thinkingCap)
         visionUsage.add(result.usage)
         let verdict = try Self.parsePairwise(result.text)
         let firstWon = verdict.winner == "A"

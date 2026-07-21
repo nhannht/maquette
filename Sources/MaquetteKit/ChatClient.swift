@@ -208,12 +208,17 @@ public struct ChatClient {
         ]
         if let temperature { body["temperature"] = temperature }
         if let maxTokens { body["max_tokens"] = maxTokens }
-        // OpenRouter's normalized reasoning control. A token cap is the only
-        // variant that actually protects the output budget: exclude:true still
-        // burns the budget and leaks thinking prose into content (IMG3D-12
-        // diagnostic). Providers treat the cap as advisory (Gemini overshoots
-        // ~2x), so pair it with headroom in max_tokens.
-        if let reasoningMaxTokens {
+        // OpenRouter's normalized reasoning control - an OpenRouter extension,
+        // not OpenAI protocol, so it is only sent there: strict endpoints
+        // (api.openai.com, Gemini/Mistral compat) reject unknown body
+        // arguments with HTTP 400, and other hosts (Moonshot, Anthropic)
+        // steer thinking through their own dialects or ignore the field.
+        // A token cap is the only variant that actually protects the output
+        // budget: exclude:true still burns the budget and leaks thinking
+        // prose into content (IMG3D-12 diagnostic). Providers treat the cap
+        // as advisory (Gemini overshoots ~2x), so pair it with headroom in
+        // max_tokens.
+        if let reasoningMaxTokens, endpoint.host() == "openrouter.ai" {
             body["reasoning"] = ["max_tokens": reasoningMaxTokens]
         }
 

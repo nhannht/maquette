@@ -20,30 +20,36 @@ final class SettingsStore {
         var keychainAccount: String { "apikey.\(rawValue)" }
         var endpointKey: String { "endpoint.\(rawValue)" }
         var modelKey: String { "model.\(rawValue)" }
-        var reasoningKey: String { "reasoning.\(rawValue)" }
+        var thinkingCapKey: String { "thinkingCap.\(rawValue)" }
     }
 
     /// Known providers so switching endpoints is one click; Custom exposes the
     /// raw endpoint field.
     enum Provider: String, CaseIterable, Identifiable {
-        case openRouter, moonshot, ollama, lmStudio, custom
+        case openRouter, openAI, anthropic, moonshot, ollama, lmStudio, custom
 
         var id: String { rawValue }
 
         var label: String {
             switch self {
             case .openRouter: return "OpenRouter"
-            case .moonshot: return "Moonshot"
+            case .openAI: return "OpenAI"
+            case .anthropic: return "Anthropic (Claude)"
+            case .moonshot: return "Moonshot (Kimi)"
             case .ollama: return "Ollama (local)"
             case .lmStudio: return "LM Studio (local)"
             case .custom: return "Custom..."
             }
         }
 
-        /// nil for custom: the user owns the endpoint field.
+        /// nil for custom: the user owns the endpoint field. Anthropic serves
+        /// the OpenAI-compatible chat surface on its regular /v1 base (the
+        /// "OpenAI SDK compatibility" layer); a plain Claude API key works.
         var endpoint: String? {
             switch self {
             case .openRouter: return "https://openrouter.ai/api/v1"
+            case .openAI: return "https://api.openai.com/v1"
+            case .anthropic: return "https://api.anthropic.com/v1"
             case .moonshot: return "https://api.moonshot.ai/v1"
             case .ollama: return "http://127.0.0.1:11434/v1"
             case .lmStudio: return "http://127.0.0.1:1234/v1"
@@ -66,11 +72,12 @@ final class SettingsStore {
     var coderEndpoint: String { didSet { save(.coder) } }
     var coderModel: String { didSet { save(.coder) } }
     var coderKey: String { didSet { saveKey(.coder, coderKey) } }
-    var coderReasoning: Bool { didSet { saveBool(coderReasoning, Slot.coder.reasoningKey) } }
+    /// Thinking cap as typed; empty means maximum (no cap sent).
+    var coderThinkingCap: String { didSet { saveString(coderThinkingCap, Slot.coder.thinkingCapKey) } }
     var visionEndpoint: String { didSet { save(.vision) } }
     var visionModel: String { didSet { save(.vision) } }
     var visionKey: String { didSet { saveKey(.vision, visionKey) } }
-    var visionReasoning: Bool { didSet { saveBool(visionReasoning, Slot.vision.reasoningKey) } }
+    var visionThinkingCap: String { didSet { saveString(visionThinkingCap, Slot.vision.thinkingCapKey) } }
     /// Attach the best cycle's renders to codegen prompts. Requires a
     /// multimodal coder; off for text-only coders like qwen3-coder.
     var coderSeesRenders: Bool { didSet { saveBool(coderSeesRenders, Self.coderSeesRendersKey) } }
@@ -84,11 +91,11 @@ final class SettingsStore {
         coderEndpoint = defaults.string(forKey: Slot.coder.endpointKey) ?? Self.defaultEndpoint
         coderModel = defaults.string(forKey: Slot.coder.modelKey) ?? Self.defaultModel
         coderKey = Keychain.get(account: Slot.coder.keychainAccount) ?? ""
-        coderReasoning = Self.bool(defaults, Slot.coder.reasoningKey, default: true)
+        coderThinkingCap = defaults.string(forKey: Slot.coder.thinkingCapKey) ?? ""
         visionEndpoint = defaults.string(forKey: Slot.vision.endpointKey) ?? Self.defaultEndpoint
         visionModel = defaults.string(forKey: Slot.vision.modelKey) ?? Self.defaultModel
         visionKey = Keychain.get(account: Slot.vision.keychainAccount) ?? ""
-        visionReasoning = Self.bool(defaults, Slot.vision.reasoningKey, default: true)
+        visionThinkingCap = defaults.string(forKey: Slot.vision.thinkingCapKey) ?? ""
         coderSeesRenders = Self.bool(defaults, Self.coderSeesRendersKey, default: true)
         autoContinue = Self.bool(defaults, Self.autoContinueKey, default: false)
     }
@@ -97,10 +104,11 @@ final class SettingsStore {
         let endpoint = slot == .coder ? coderEndpoint : visionEndpoint
         let model = slot == .coder ? coderModel : visionModel
         let key = slot == .coder ? coderKey : visionKey
-        let reasoning = slot == .coder ? coderReasoning : visionReasoning
+        let cap = Int((slot == .coder ? coderThinkingCap : visionThinkingCap)
+            .trimmingCharacters(in: .whitespaces))
         guard let url = URL(string: endpoint), !model.isEmpty else { return nil }
         return ModelSlotConfig(endpoint: url, modelID: model, apiKey: key,
-                               reasoning: reasoning)
+                               thinkingCap: (cap ?? 0) > 0 ? cap : nil)
     }
 
     private func save(_ slot: Slot) {
@@ -118,6 +126,10 @@ final class SettingsStore {
     }
 
     private func saveBool(_ value: Bool, _ key: String) {
+        UserDefaults.standard.set(value, forKey: key)
+    }
+
+    private func saveString(_ value: String, _ key: String) {
         UserDefaults.standard.set(value, forKey: key)
     }
 

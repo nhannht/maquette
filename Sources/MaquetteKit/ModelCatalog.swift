@@ -39,17 +39,34 @@ public enum ModelCatalog {
     /// GET {endpoint}/models - the standard OpenAI-compatible listing.
     /// OpenRouter serves it keyless with pricing and modalities.
     public static func fetch(endpoint: URL, apiKey: String) async throws -> [ModelInfo] {
-        var request = URLRequest(url: endpoint.appending(path: "models"))
-        if !apiKey.isEmpty {
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        }
-        request.timeoutInterval = 30
+        let request = makeRequest(endpoint: endpoint, apiKey: apiKey)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
             throw ModelCatalogError.badResponse("HTTP \(code)")
         }
         return try parse(data)
+    }
+
+    /// Anthropic's OpenAI compat layer covers chat/completions only; its
+    /// model list is the native endpoint, which authenticates with x-api-key
+    /// + anthropic-version instead of a Bearer header and pages at 20 items
+    /// unless asked for more.
+    static func makeRequest(endpoint: URL, apiKey: String) -> URLRequest {
+        var url = endpoint.appending(path: "models")
+        let anthropic = endpoint.host() == "api.anthropic.com"
+        if anthropic {
+            url.append(queryItems: [URLQueryItem(name: "limit", value: "1000")])
+        }
+        var request = URLRequest(url: url)
+        if anthropic {
+            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        } else if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+        request.timeoutInterval = 30
+        return request
     }
 
     static func parse(_ data: Data) throws -> [ModelInfo] {

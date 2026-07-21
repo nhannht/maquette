@@ -64,4 +64,27 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertEqual(models[1].priceLabel, "$0.20 + $0.80 /M")
         XCTAssertEqual(models[3].priceLabel, "free")
     }
+
+    func testModelsRequestUsesBearerForOpenAICompatibleHosts() {
+        let request = ModelCatalog.makeRequest(
+            endpoint: URL(string: "https://openrouter.ai/api/v1")!, apiKey: "sk-or")
+        XCTAssertEqual(request.url?.absoluteString,
+                       "https://openrouter.ai/api/v1/models")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"),
+                       "Bearer sk-or")
+        XCTAssertNil(request.value(forHTTPHeaderField: "x-api-key"))
+    }
+
+    func testModelsRequestUsesNativeHeadersForAnthropic() {
+        // The compat layer has no /models; the native list wants its own
+        // auth headers and pages at 20 items without an explicit limit.
+        let request = ModelCatalog.makeRequest(
+            endpoint: URL(string: "https://api.anthropic.com/v1")!, apiKey: "sk-ant")
+        XCTAssertEqual(request.url?.absoluteString,
+                       "https://api.anthropic.com/v1/models?limit=1000")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "sk-ant")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "anthropic-version"),
+                       "2023-06-01")
+    }
 }

@@ -23,7 +23,7 @@ func usage() -> Never {
           [--coder-model ID] [--vision-model ID]
           [--coder-endpoint URL] [--vision-endpoint URL]
           [--cycles N] [--threshold X] [--coder-text-only]
-          [--coder-no-reasoning] [--vision-no-reasoning]
+          [--coder-thinking-cap N] [--vision-thinking-cap N]
           [--intent TEXT] [--spec-file PATH]
 
     Extra photos are further views of the SAME object (first photo = primary
@@ -31,8 +31,9 @@ func usage() -> Never {
     --coder-text-only: do not attach reference or render images to codegen
     prompts; required for text-only coder models (e.g. qwen3-coder), which
     reject image input.
-    --coder-no-reasoning / --vision-no-reasoning: do not send the reasoning
-    token budget for that slot (for endpoints that reject the field).
+    --coder-thinking-cap / --vision-thinking-cap: cap that slot's thinking
+    tokens (default: no cap, maximum thinking; the cap is an OpenRouter
+    extension - other endpoints govern their own thinking).
     --intent: the build brief (skips the recognize call); may go beyond what
     the photo shows (interior, open state, hidden side) - judged authoritative.
     --spec-file: use this spec JSON verbatim and skip recognize + spec calls.
@@ -46,8 +47,7 @@ func usage() -> Never {
 }
 
 struct Flags {
-    static let booleanFlags: Set<String> =
-        ["coder-text-only", "coder-no-reasoning", "vision-no-reasoning"]
+    static let booleanFlags: Set<String> = ["coder-text-only"]
 
     var positional: [String] = []
     var options: [String: String] = [:]
@@ -192,10 +192,12 @@ func sculpt(flags: Flags) async throws {
     let config = SculptConfig(
         coder: ModelSlotConfig(endpoint: coderEndpoint, modelID: coderModel,
                                apiKey: coderKey,
-                               reasoning: flags.options["coder-no-reasoning"] == nil),
+                               thinkingCap: flags.options["coder-thinking-cap"]
+                                   .flatMap(Int.init)),
         vision: ModelSlotConfig(endpoint: visionEndpoint, modelID: visionModel,
                                 apiKey: visionKey,
-                                reasoning: flags.options["vision-no-reasoning"] == nil),
+                                thinkingCap: flags.options["vision-thinking-cap"]
+                                    .flatMap(Int.init)),
         threshold: Double(flags.options["threshold"] ?? "0.7") ?? 0.7,
         maxCycles: Int(flags.options["cycles"] ?? "5") ?? 5,
         coderSeesRenders: flags.options["coder-text-only"] == nil,

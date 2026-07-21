@@ -9,8 +9,8 @@ struct SettingsView: View {
         Form {
             Section {
                 Text("Bring your own model. Any OpenAI-compatible endpoint works: " +
-                     "hosted (OpenRouter, Moonshot) or local (Ollama, LM Studio - " +
-                     "cheaper and fully private, no key needed).")
+                     "hosted (OpenRouter, OpenAI, Anthropic, Moonshot) or local " +
+                     "(Ollama, LM Studio - cheaper and fully private, no key needed).")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -18,7 +18,7 @@ struct SettingsView: View {
                 SlotFields(endpoint: $settings.coderEndpoint,
                            model: $settings.coderModel,
                            key: $settings.coderKey,
-                           reasoning: $settings.coderReasoning,
+                           thinkingCap: $settings.coderThinkingCap,
                            requireImage: false,
                            hints: ["coder", "code"])
                 Toggle("Show the coder its renders", isOn: $settings.coderSeesRenders)
@@ -41,7 +41,7 @@ struct SettingsView: View {
                 SlotFields(endpoint: $settings.visionEndpoint,
                            model: $settings.visionModel,
                            key: $settings.visionKey,
-                           reasoning: $settings.visionReasoning,
+                           thinkingCap: $settings.visionThinkingCap,
                            requireImage: true,
                            hints: [])
                 Text("Must accept images. The judge is only a default: every " +
@@ -64,7 +64,7 @@ private struct SlotFields: View {
     @Binding var endpoint: String
     @Binding var model: String
     @Binding var key: String
-    @Binding var reasoning: Bool
+    @Binding var thinkingCap: String
     let requireImage: Bool
     let hints: [String]
 
@@ -96,10 +96,10 @@ private struct SlotFields: View {
         SecureField("API key", text: $key,
                     prompt: Text(provider.wrappedValue.isLocal
                                  ? "not needed for local endpoints" : "required"))
-        Toggle("Reasoning model", isOn: $reasoning)
-        Text("Keep ON for models that think before answering (gemini, kimi " +
-             "thinking, o-series, qwen -thinking): it caps thinking tokens so the " +
-             "answer is not starved. Harmless if the model does not reason.")
+        TextField("Thinking cap", text: $thinkingCap, prompt: Text("maximum"))
+        Text("Thinking models spend as many tokens as they like by default. " +
+             "Enter a token cap to trim cost - enforced on OpenRouter only; " +
+             "other endpoints govern their own thinking.")
             .font(.caption)
             .foregroundStyle(.secondary)
         .sheet(isPresented: $showPicker) {

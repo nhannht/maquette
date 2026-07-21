@@ -9,18 +9,19 @@ public struct ModelSlotConfig: Equatable {
     public var modelID: String
     /// Empty for keyless local endpoints (Ollama, LM Studio).
     public var apiKey: String
-    /// Whether this model reasons before answering. Gates sending the
-    /// per-stage reasoning token budget: a reasoning model without the cap
-    /// starves its own output (IMG3D-12), while OpenRouter and Ollama simply
-    /// ignore the field on non-reasoning models.
-    public var reasoning: Bool
+    /// Thinking-token cap for models that reason before answering. nil (the
+    /// default) means maximum: no cap is sent and the model thinks as much as
+    /// it wants inside the stage's max_tokens. A value trims cost; it is only
+    /// wire-enforceable on OpenRouter (its normalized reasoning control) and
+    /// advisory even there - stage ceilings absorb overshoot (IMG3D-12).
+    public var thinkingCap: Int?
 
     public init(endpoint: URL, modelID: String, apiKey: String,
-                reasoning: Bool = true) {
+                thinkingCap: Int? = nil) {
         self.endpoint = endpoint
         self.modelID = modelID
         self.apiKey = apiKey
-        self.reasoning = reasoning
+        self.thinkingCap = thinkingCap
     }
 
     public var client: ChatClient {

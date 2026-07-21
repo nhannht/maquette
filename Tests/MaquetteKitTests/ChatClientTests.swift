@@ -49,8 +49,9 @@ final class ChatClientTests: XCTestCase {
                        "data:image/png;base64,\(png.base64EncodedString())")
     }
 
-    private func requestBody(reasoningMaxTokens: Int?) throws -> [String: Any]? {
-        let client = ChatClient(endpoint: URL(string: "https://example.com/v1")!,
+    private func requestBody(endpoint: String = "https://openrouter.ai/api/v1",
+                             reasoningMaxTokens: Int?) throws -> [String: Any]? {
+        let client = ChatClient(endpoint: URL(string: endpoint)!,
                                 apiKey: "k")
         let request = try client.makeRequest(
             model: "m", messages: [ChatMessage(role: .user, text: "hi")],
@@ -88,6 +89,14 @@ final class ChatClientTests: XCTestCase {
 
     func testNoReasoningKeyWhenUncapped() throws {
         let body = try requestBody(reasoningMaxTokens: nil)
+        XCTAssertNil(body?["reasoning"])
+    }
+
+    func testReasoningCapNotSentToNonOpenRouterEndpoints() throws {
+        // The reasoning object is OpenRouter's extension; api.openai.com
+        // rejects unknown body arguments with HTTP 400.
+        let body = try requestBody(endpoint: "https://api.openai.com/v1",
+                                   reasoningMaxTokens: 2048)
         XCTAssertNil(body?["reasoning"])
     }
 
