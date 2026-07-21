@@ -22,8 +22,8 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 560)
-        .dropDestination(for: URL.self) { urls, _ in
-            handleDrop(urls)
+        .onDrop(of: ImageDropResolver.supportedTypes, isTargeted: nil) { providers in
+            handleDrop(providers)
         }
         .quickLookPreview($vm.quickLookURL)
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -33,13 +33,17 @@ struct ContentView: View {
 
     // MARK: - Starting a run
 
-    private func handleDrop(_ urls: [URL]) -> Bool {
-        guard vm.phase != .running else { return false }
-        let images = urls.filter {
-            UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true
-        }.prefix(1 + ReferenceSet.maxExtras)
-        guard !images.isEmpty else { return false }
-        start(Array(images))
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard vm.phase != .running, ImageDropResolver.canResolve(providers) else { return false }
+        Task {
+            let urls = await ImageDropResolver.resolve(providers,
+                                                       limit: 1 + ReferenceSet.maxExtras)
+            let images = urls.filter {
+                UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true
+            }
+            guard !images.isEmpty else { return }
+            start(images)
+        }
         return true
     }
 
