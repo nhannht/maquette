@@ -4,13 +4,9 @@ import PackageDescription
 let package = Package(
     name: "maquette",
     platforms: [.macOS(.v14)],
-    dependencies: [
-        .package(path: "../depthcard")
-    ],
     targets: [
         .target(
             name: "MaquetteKit",
-            dependencies: [.product(name: "DepthCardKit", package: "depthcard")],
             path: "Sources/MaquetteKit",
             resources: [.copy("Resources")]),
         .executableTarget(

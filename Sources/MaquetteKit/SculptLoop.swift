@@ -1,5 +1,4 @@
 import AppKit
-import DepthCardKit
 
 // The self-correction loop: subject lift -> spec -> [codegen -> render ->
 // review] until the vision score clears the threshold or the cycle cap hits.

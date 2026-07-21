@@ -6,9 +6,9 @@ from the photo, a built-in WKWebView renderer screenshots it, a vision LLM score
 against the photo, and the loop iterates to a threshold. Then GLB + USDZ export.
 
 - Task home: YouTrack project IMG3D, epic IMG3D-10.
-- Sibling repo `../depthcard` provides DepthCardKit (subject lift, OBJ->USDZ export)
-  as a local SwiftPM dependency. depthcard stays the relief pipeline; maquette is the
-  LLM sculpt client. Do not merge them.
+- Zero package dependencies: subject lift is vendored in
+  `MaquetteKit/SubjectLift.swift` (Apple Vision foreground mask, on-device).
+  Sibling `../depthcard` is the separate relief pipeline; do not merge them.
 - Idea source for prompts and gates: `../img2threejs/` (SKILL.md + references/).
 
 ## Architecture (v1)
