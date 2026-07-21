@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../theme";
+import GlassSurface from "./reactbits/GlassSurface/GlassSurface";
 
 const LINKS = [
   { href: "#sculpt", label: "Watch it sculpt" },
@@ -54,7 +55,15 @@ export default function Nav() {
 
   return (
     <nav className="nav" ref={navRef} aria-label="Primary">
-      <div className="nav-pill">
+      {/* GlassSurface is the ONE persistent glass pane (nav pill). Frost/border
+          are themed from outside via .nav-glass overrides in app.css, so the
+          vendored component stays byte-untouched. */}
+      <GlassSurface
+        className="nav-glass"
+        width="min(980px, 100%)"
+        height="auto"
+        borderRadius={28}
+      >
         <a href="#top" className="nav-brand" aria-label="Maquette, home">
           <Mark />
           <span className="nav-word">Maquette</span>
@@ -119,7 +128,7 @@ export default function Nav() {
             </span>
           </button>
         </div>
-      </div>
+      </GlassSurface>
 
       {open && (
         <div className="nav-sheet" role="menu">

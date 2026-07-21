@@ -1,3 +1,6 @@
+import BorderGlow from "./reactbits/BorderGlow/BorderGlow";
+import { useTheme } from "../theme";
+
 interface Item {
   title: string;
   body: React.ReactNode;
@@ -62,6 +65,7 @@ const items: Item[] = [
 ];
 
 export default function Privacy() {
+  const { theme } = useTheme();
   return (
     <section className="section privacy-section" id="privacy" aria-labelledby="privacy-title">
       <div className="section-head">
@@ -75,11 +79,22 @@ export default function Privacy() {
 
       <div className="privacy-grid">
         {items.map((it) => (
-          <article className="paper-card privacy-card" key={it.title}>
+          <BorderGlow
+            key={it.title}
+            className="privacy-card"
+            borderRadius={26}
+            // These land in JS-computed gradients/glow, so they can't be CSS
+            // vars. backgroundColor mirrors tokens.css --card-backing (opaque
+            // paper per theme); colors/glowColor are the blue accent family
+            // (--accent / --accent-text), deliberately no purple.
+            backgroundColor={theme === "dark" ? "#141b2e" : "#ffffff"}
+            glowColor="210 90 62"
+            colors={["#0091ff", "#58b6ff", "#3f6fd8"]}
+          >
             <span className="card-icon">{it.icon}</span>
             <h3>{it.title}</h3>
             <p>{it.body}</p>
-          </article>
+          </BorderGlow>
         ))}
       </div>
     </section>

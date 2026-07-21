@@ -207,33 +207,32 @@ p {
   padding: 0 16px;
   pointer-events: none;
 }
-.nav-pill {
+/* GlassSurface (vendored) IS the nav pill. Theme its frost/edge from here so
+ * the vendored files stay byte-untouched; the component's JS drives the SVG
+ * backdrop refraction on Chromium. */
+.nav-glass {
   pointer-events: auto;
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  width: min(980px, 100%);
-  padding: 9px 10px 9px 18px;
-  border-radius: var(--r-pill);
+  overflow: visible; /* don't clip focus rings on the edge icons */
+}
+.nav-glass.glass-surface--svg {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+}
+/* Safari / Firefox: no SVG backdrop displacement - themed frosted fallback. */
+.nav-glass.glass-surface--fallback {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
   -webkit-backdrop-filter: blur(22px) saturate(180%);
   backdrop-filter: blur(22px) saturate(180%);
 }
-.nav-pill::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(
-    180deg,
-    var(--glass-highlight),
-    transparent 42%
-  );
-  opacity: 0.6;
-  pointer-events: none;
+.nav-glass .glass-surface__content {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 18px;
+  padding: 9px 10px 9px 18px;
 }
 .nav-brand {
   display: inline-flex;
@@ -1083,18 +1082,47 @@ main {
 /* ------------------------------------------------------------------ *
  * Paper cards + effects
  * ------------------------------------------------------------------ */
-.paper-card {
-  position: relative;
+/* Shared paper shell for the vendored react-bits card hosts:
+ *   - SpotlightCard  -> .gallery-card / .install-card  (.card-spotlight)
+ *   - BorderGlow     -> .privacy-card                  (.border-glow-card)
+ * The vendored CSS hardcodes dark literals (#111 / #222 / #120F17) and heavy
+ * shadows; we re-skin to the token layer here so both themes read as opaque
+ * Apple paper. BorderGlow paints its own --card-bg (mirrored in Privacy.tsx),
+ * so it only needs the border and shadow softened, not the fill. */
+.gallery-card.card-spotlight,
+.install-card.card-spotlight {
   background: var(--card-backing);
+}
+.gallery-card.card-spotlight,
+.install-card.card-spotlight,
+.privacy-card.border-glow-card {
+  position: relative;
   border: 1px solid var(--hairline);
   border-radius: var(--r-card);
-  padding: 26px;
+  box-shadow: none;
   transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
 }
-.paper-card:hover {
+.gallery-card.card-spotlight:hover,
+.install-card.card-spotlight:hover,
+.privacy-card.border-glow-card:hover {
   transform: translateY(-3px);
   border-color: color-mix(in srgb, var(--accent-text) 40%, var(--hairline));
   box-shadow: 0 22px 50px -30px var(--glow), 0 0 0 1px color-mix(in srgb, var(--accent-text) 20%, transparent);
+}
+
+/* Install card: opaque paper, column layout, generous padding. */
+.install-card.card-spotlight {
+  padding: 26px;
+}
+.install-card.install-primary.card-spotlight {
+  border-color: color-mix(in srgb, var(--accent-text) 35%, var(--hairline));
+}
+
+/* Privacy card (BorderGlow): give the inner content the card padding the
+ * vendored wrapper does not, and let the hover glow escape the box. */
+.privacy-card .border-glow-inner {
+  padding: 26px;
+  overflow: visible;
 }
 .card-icon {
   display: inline-grid;
@@ -1111,6 +1139,10 @@ main {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 18px;
+  /* BorderGlow's outer .edge-light sits at inset -40px; near a narrow viewport
+   * edge that decorative bleed would drive horizontal page overflow. Clip it on
+   * the x-axis only (vertical glow between rows stays visible). */
+  overflow-x: clip;
 }
 .privacy-card h3 {
   font-size: 1.14rem;
@@ -1189,7 +1221,21 @@ main {
   flex-direction: column;
   gap: 12px;
 }
-.gallery-card {
+/* Gallery card = SpotlightCard shell (padding 0) wrapping a bare button that
+ * fills it and carries the flex row. The focus ring rides the card via
+ * :focus-within so the shell's overflow:hidden never clips it. */
+.gallery-card.card-spotlight {
+  padding: 0;
+}
+.gallery-card.is-selected {
+  border-color: var(--accent-text);
+  box-shadow: 0 0 0 1px var(--accent-text);
+}
+.gallery-card.card-spotlight:focus-within {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 3px;
+}
+.gallery-card-inner {
   width: 100%;
   display: flex;
   align-items: center;
@@ -1198,10 +1244,13 @@ main {
   cursor: pointer;
   padding: 12px;
   font-family: inherit;
+  background: none;
+  border: none;
+  color: inherit;
+  border-radius: inherit;
 }
-.gallery-card.is-selected {
-  border-color: var(--accent-text);
-  box-shadow: 0 0 0 1px var(--accent-text);
+.gallery-card-inner:focus-visible {
+  outline: none;
 }
 .gallery-card-thumb {
   flex: none;
@@ -1383,7 +1432,7 @@ main {
   .nav-burger {
     display: inline-flex;
   }
-  .nav-pill {
+  .nav-glass .glass-surface__content {
     gap: 6px;
     padding: 8px 8px 8px 16px;
   }

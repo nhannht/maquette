@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import ModelViewer from "./ModelViewer";
 import { gallery } from "../lib/runData";
 import type { ModelViewer as Viewer } from "../lib/modelViewer";
+import SpotlightCard from "./reactbits/SpotlightCard/SpotlightCard";
+import { useTheme } from "../theme";
 
 const AR_BADGE =
   "data:image/svg+xml," +
@@ -37,6 +39,7 @@ export default function Gallery() {
   const viewerRef = useRef<Viewer | null>(null);
   const loaded = useRef(0);
   const arOk = useArSupport();
+  const { theme } = useTheme();
   const item = gallery[sel];
 
   useEffect(() => {
@@ -92,21 +95,29 @@ export default function Gallery() {
         <ul className="gallery-cards">
           {gallery.map((g, i) => (
             <li key={g.id}>
-              <button
-                type="button"
-                className={`paper-card gallery-card ${i === sel ? "is-selected" : ""}`}
-                onClick={() => setSel(i)}
-                aria-pressed={i === sel}
+              <SpotlightCard
+                className={`gallery-card ${i === sel ? "is-selected" : ""}`}
+                // SpotlightCard writes this literal into --spotlight-color in JS,
+                // so it cannot be a CSS var. Mirrors tokens.css --spotlight:
+                // dark = blue-on-navy glow, light = accent-blue glow.
+                spotlightColor={theme === "dark" ? "rgba(120, 160, 255, 0.16)" : "rgba(0, 102, 204, 0.1)"}
               >
-                <span className="gallery-card-thumb">
-                  <img src={g.poster} alt="" aria-hidden="true" loading="lazy" draggable={false} />
-                </span>
-                <span className="gallery-card-text">
-                  <span className="gallery-card-name">{g.name}</span>
-                  <span className="gallery-card-sub">{g.subtitle}</span>
-                </span>
-                {i === sel && <span className="gallery-card-live">Viewing</span>}
-              </button>
+                <button
+                  type="button"
+                  className="gallery-card-inner"
+                  onClick={() => setSel(i)}
+                  aria-pressed={i === sel}
+                >
+                  <span className="gallery-card-thumb">
+                    <img src={g.poster} alt="" aria-hidden="true" loading="lazy" draggable={false} />
+                  </span>
+                  <span className="gallery-card-text">
+                    <span className="gallery-card-name">{g.name}</span>
+                    <span className="gallery-card-sub">{g.subtitle}</span>
+                  </span>
+                  {i === sel && <span className="gallery-card-live">Viewing</span>}
+                </button>
+              </SpotlightCard>
             </li>
           ))}
         </ul>

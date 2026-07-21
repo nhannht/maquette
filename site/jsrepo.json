@@ -1,0 +1,8 @@
+{
+  "$schema": "https://jsrepo.dev/schemas/project-config.json",
+  "registries": ["https://reactbits.dev/r"],
+  "paths": {
+    "*": "./src/components/reactbits"
+  },
+  "includeTests": false
+}

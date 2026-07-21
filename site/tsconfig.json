@@ -13,8 +13,14 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    // Unused-symbol lint is off because the byte-untouched vendored react-bits
+    // components (src/components/reactbits, kept pristine for jsrepo updates)
+    // ship upstream dead declarations. tsc pulls imported files into the program
+    // regardless of `exclude`, so this cannot be scoped without a composite
+    // project split - not worth the build machinery on a static site. Full
+    // `strict` type-safety stays on; unused-symbol hygiene belongs to ESLint.
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src", "vite.config.ts"]
