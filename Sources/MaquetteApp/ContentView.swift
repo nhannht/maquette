@@ -142,9 +142,13 @@ struct ContentView: View {
                         if vm.referenceImages.isEmpty {
                             thumbnail(vm.photoImage, maxHeight: thumbHeight)
                         } else {
-                            ForEach(vm.referenceImages.indices, id: \.self) { index in
-                                thumbnail(vm.referenceImages[index],
-                                          maxHeight: thumbHeight)
+                            // The body must hold the element, not subscript the
+                            // live array: newRun() empties referenceImages and
+                            // SwiftUI re-renders a stale child before removing
+                            // it - an index-keyed subscript traps out of range.
+                            ForEach(Array(vm.referenceImages.enumerated()),
+                                    id: \.offset) { _, image in
+                                thumbnail(image, maxHeight: thumbHeight)
                             }
                         }
                         if vm.subjectImage != nil {
