@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <style>
+    .mk { fill: none; stroke: #1d1d1f; stroke-width: 3.4; stroke-linejoin: round; stroke-linecap: round; }
+    .tp { fill: #1d1d1f; opacity: 0.14; }
+    @media (prefers-color-scheme: dark) {
+      .mk { stroke: #ffffff; }
+      .tp { fill: #ffffff; }
+    }
+  </style>
+  <!-- isometric cube: photo becomes a solid -->
+  <polygon class="tp" points="32,8 54,20 32,32 10,20" />
+  <path class="mk" d="M32 8 L54 20 L54 44 L32 56 L10 44 L10 20 Z" />
+  <path class="mk" d="M32 8 L32 32 M10 20 L32 32 L54 20" />
+</svg>

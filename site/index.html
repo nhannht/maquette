@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/img/apple-touch-icon.png" />
+
+    <title>Maquette - Drop a photo, get a sculpted 3D model</title>
+    <meta
+      name="description"
+      content="A macOS app that turns a photo into a sculpted 3D model. A coder LLM writes procedural Three.js geometry, a vision LLM judges it against your photo, and the loop refines until it looks right. Best cycle wins. Exports GLB and USDZ. Bring your own key."
+    />
+    <meta name="theme-color" content="#0b0b0f" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ececef" media="(prefers-color-scheme: light)" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Maquette" />
+    <meta property="og:title" content="Maquette - Drop a photo, get a sculpted 3D model" />
+    <meta
+      property="og:description"
+      content="A coder LLM sculpts procedural 3D geometry from your photo, a vision LLM judges each cycle, and the best one wins. Exports GLB and USDZ. macOS, bring your own key, under $0.10 a run."
+    />
+    <meta property="og:url" content="https://maquette.nhannht.io.vn/" />
+    <meta property="og:image" content="https://maquette.nhannht.io.vn/img/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Maquette - Drop a photo, get a sculpted 3D model" />
+    <meta
+      name="twitter:description"
+      content="A coder LLM sculpts procedural 3D geometry from your photo, a vision LLM judges each cycle, and the best one wins. Exports GLB and USDZ."
+    />
+    <meta name="twitter:image" content="https://maquette.nhannht.io.vn/img/og-image.png" />
+
+    <script>
+      // Pre-paint theme: no wrong-theme flash. Runs before first paint.
+      (function () {
+        try {
+          var t = localStorage.getItem("theme");
+          if (t !== "light" && t !== "dark")
+            t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+          document.documentElement.dataset.theme = t;
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
