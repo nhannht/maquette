@@ -18,14 +18,30 @@ public enum SculptPrompts {
     public static let briefReasoningMaxTokens = 256
 
     public static let briefSystem = """
-    You look at one photo of a single object and write a build brief for a \
+    You look at one or more photos of a single object - every photo shows the \
+    SAME object, the first is the primary view - and write a build brief for a \
     procedural 3D modeler: 2 to 4 plain sentences naming the object and its \
     identity-defining shape, parts, proportions, colors, and materials. \
     Describe only what is visible. Respond with ONLY the brief text - no \
     markdown, no JSON, no preamble.
     """
 
-    public static let briefUser = "Write the build brief for this object photo."
+    public static func briefUser(extraViews: [String?] = []) -> String {
+        guard !extraViews.isEmpty else {
+            return "Write the build brief for this object photo."
+        }
+        return "Write the build brief for this object. All \(extraViews.count + 1) "
+            + "attached photos show the SAME object - the first is the primary "
+            + "view, \(viewList(extraViews))."
+    }
+
+    /// "photo 2: back, photo 3: another view" - the user's per-view labels,
+    /// resolved so every extra photo is explicitly tied to the same object.
+    static func viewList(_ labels: [String?]) -> String {
+        labels.enumerated().map { index, label in
+            "photo \(index + 2): \(label ?? "another view")"
+        }.joined(separator: ", ")
+    }
 
     // MARK: - Stage 1: analyze + spec (vision slot)
 
@@ -37,8 +53,9 @@ public enum SculptPrompts {
     public static let specReasoningMaxTokens = 1024
 
     public static let specSystem = """
-    You are a 3D reconstruction analyst. You receive one photo of a single object \
-    and produce a compact build spec for a procedural three.js modeler.
+    You are a 3D reconstruction analyst. You receive one or more photos of a \
+    single object - every photo shows the SAME object, the first is the primary \
+    view - and produce one compact build spec for a procedural three.js modeler.
 
     Respond with ONLY a JSON object, no prose, no markdown fences, with fields:
     - "object": one line naming the object and its identity-defining traits.
@@ -58,8 +75,13 @@ public enum SculptPrompts {
     """
 
     public static func specUser(critique: String?, previousSpec: String?,
-                                brief: String? = nil) -> String {
-        var text = "Analyze this object photo and produce the build spec JSON."
+                                brief: String? = nil,
+                                extraViews: [String?] = []) -> String {
+        var text = extraViews.isEmpty
+            ? "Analyze this object photo and produce the build spec JSON."
+            : "Analyze these \(extraViews.count + 1) photos - all the SAME "
+              + "object, the first is the primary view, \(viewList(extraViews)) "
+              + "- and produce one build spec JSON for that single object."
         if let brief, !brief.isEmpty {
             text += """
             \n\nBUILD BRIEF - approved by the user, authoritative. Where it goes \
@@ -122,6 +144,7 @@ public enum SculptPrompts {
                                    incumbentScore: Double? = nil,
                                    layerScores: [String: Double]? = nil,
                                    rendersAttached: Bool = false,
+                                   referencesAttached: Bool = false,
                                    regressed: Bool = false) -> String {
         var text = "SPEC:\n\(spec)"
         if let previousCode {
@@ -142,6 +165,14 @@ public enum SculptPrompts {
             text += """
             \n\nThe attached image shows the reference photo beside four renders of \
             the best code. Compare them yourself and fix what visibly differs.
+            """
+        }
+        if referencesAttached {
+            text += """
+            \n\nThe attached image(s) are the reference photo(s) the spec was \
+            written from - all views of the same object. Use them for the \
+            proportions and details the spec compresses away. The SPEC remains \
+            authoritative: where the photos and the spec conflict, follow the spec.
             """
         }
         if let jsError {
@@ -174,7 +205,9 @@ public enum SculptPrompts {
 
     public static let reviewSystem = """
     You are a strict 3D visual QA judge. You receive one comparison sheet: the \
-    REFERENCE photo on the left, four labeled renders of a procedural model on the \
+    REFERENCE photo on the left (smaller REF panels below it, when present, are \
+    further views of the SAME object - use them to check hidden sides), four \
+    labeled renders of a procedural model on the \
     right (front, threeQuarter, side, top). You also receive the build SPEC JSON: \
     the spec is the authoritative target and the photo is its visual reference. \
     Where the spec deliberately goes beyond what the photo can show (interior \
@@ -205,8 +238,8 @@ public enum SculptPrompts {
 
     public static func reviewUser(spec: String) -> String {
         """
-        Left: reference photo. Right: four renders of the current procedural model. \
-        Score it and return the JSON verdict.
+        Left: reference photo(s) of one object. Right: four renders of the current \
+        procedural model. Score it and return the JSON verdict.
 
         SPEC:
         \(spec)
@@ -225,7 +258,8 @@ public enum SculptPrompts {
 
     public static let pairwiseSystem = """
     You are a strict 3D visual QA judge. You receive two comparison sheets for \
-    the SAME reference photo. Each sheet shows the reference photo on the left \
+    the SAME reference set. Each sheet shows the reference photo(s) of one \
+    object on the left \
     and four labeled renders of a procedural model on the right. The first image \
     is model A, the second image is model B. You also receive the build SPEC \
     JSON both models target: the spec is authoritative, and where it deliberately \
@@ -242,7 +276,7 @@ public enum SculptPrompts {
 
     public static func pairwiseUser(spec: String) -> String {
         """
-        First image: model A. Second image: model B. Same reference photo in both. \
+        First image: model A. Second image: model B. Same reference set in both. \
         Which model matches the target better? Return the JSON verdict.
 
         SPEC:

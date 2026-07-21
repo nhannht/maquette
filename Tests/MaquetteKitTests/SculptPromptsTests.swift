@@ -65,6 +65,46 @@ final class SculptPromptsTests: XCTestCase {
         XCTAssertTrue(SculptPrompts.pairwiseSystem.contains("never count"))
     }
 
+    func testCodegenUserReferencesAttachedKeepsSpecAuthoritative() {
+        // A fresh build may see the reference photos, but only as visual
+        // ground truth for detail - the spec must stay the contract.
+        let text = SculptPrompts.codegenUser(spec: "{}", previousCode: nil,
+                                             critique: nil, jsError: nil,
+                                             referencesAttached: true)
+        XCTAssertTrue(text.contains("reference photo(s)"))
+        XCTAssertTrue(text.contains("SPEC remains authoritative"))
+        XCTAssertFalse(SculptPrompts.codegenUser(spec: "{}", previousCode: nil,
+                                                 critique: nil, jsError: nil)
+            .contains("reference photo(s)"))
+    }
+
+    func testBriefAndSpecUsersNameEveryExtraView() {
+        // Every extra photo must be explicitly tied to the same object with
+        // its label resolved - unlabeled multi-image prompts are the
+        // IMG3D-13 failure mode.
+        let brief = SculptPrompts.briefUser(extraViews: ["back", nil])
+        XCTAssertTrue(brief.contains("All 3 attached photos"))
+        XCTAssertTrue(brief.contains("SAME object"))
+        XCTAssertTrue(brief.contains("photo 2: back"))
+        XCTAssertTrue(brief.contains("photo 3: another view"))
+        XCTAssertEqual(SculptPrompts.briefUser(),
+                       "Write the build brief for this object photo.")
+
+        let spec = SculptPrompts.specUser(critique: nil, previousSpec: nil,
+                                          extraViews: ["open lid"])
+        XCTAssertTrue(spec.contains("these 2 photos"))
+        XCTAssertTrue(spec.contains("photo 2: open lid"))
+        XCTAssertFalse(SculptPrompts.specUser(critique: nil, previousSpec: nil)
+            .contains("photos"))
+    }
+
+    func testJudgeSystemsExplainExtraReferenceViews() {
+        XCTAssertTrue(SculptPrompts.reviewSystem.contains("SAME object"))
+        XCTAssertTrue(SculptPrompts.pairwiseSystem.contains("SAME reference set"))
+        XCTAssertTrue(SculptPrompts.pairwiseUser(spec: "{}")
+            .contains("Same reference set in both"))
+    }
+
     func testCodegenUserCrashLaneHasNoIncumbentFraming() {
         // Crash retries iterate on the crashing code itself; the incumbent
         // framing (and its image) belongs only to the fresh-attempt lane.

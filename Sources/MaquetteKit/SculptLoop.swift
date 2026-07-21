@@ -299,7 +299,8 @@ public final class SculptLoop {
                 brief = intent
             } else {
                 onEvent(.stage("recognize (vision slot)"))
-                brief = try await makeBrief(subjectPNGs: subjectPNGs)
+                brief = try await makeBrief(subjectPNGs: subjectPNGs,
+                                            extraViews: references.extras.map(\.label))
             }
             let decision = await gate.approveBrief(
                 BriefDraft(brief: brief ?? "", references: references))
@@ -314,7 +315,8 @@ public final class SculptLoop {
             try write(brief ?? "", name: "brief.txt")
             onEvent(.stage("analyze + spec (vision slot)"))
             spec = try await makeSpec(subjectPNGs: subjectPNGs, critique: nil,
-                                      previousSpec: nil, brief: brief)
+                                      previousSpec: nil, brief: brief,
+                                      extraViews: references.extras.map(\.label))
         }
         try write(spec, name: "spec-1.json")
 
@@ -370,6 +372,11 @@ public final class SculptLoop {
                 var userContent: [ChatContent] = []
                 if inheritsIncumbent && config.coderSeesRenders, let sheet = best?.sheet {
                     userContent.append(.imagePNG(sheet))
+                } else if !inheritsIncumbent && config.coderSeesRenders {
+                    // Fresh builds (cycle 1, post-refine-spec, crash fixes)
+                    // have no incumbent sheet: a multimodal coder sees the
+                    // reference photos instead, spec still authoritative.
+                    for png in subjectPNGs { userContent.append(.imagePNG(png)) }
                 }
                 userContent.append(.text(SculptPrompts.codegenUser(
                     spec: spec, previousCode: code.isEmpty ? nil : code,
@@ -377,6 +384,7 @@ public final class SculptLoop {
                     incumbentScore: inheritsIncumbent ? best?.review.overallScore : nil,
                     layerScores: inheritsIncumbent ? best?.review.layerScores : nil,
                     rendersAttached: inheritsIncumbent && config.coderSeesRenders,
+                    referencesAttached: !inheritsIncumbent && config.coderSeesRenders,
                     regressed: inheritsIncumbent && lastRegressed)))
                 // Truncation and code-less responses are attempt failures like
                 // JS crashes: retry within the lane instead of killing a run
@@ -524,7 +532,8 @@ public final class SculptLoop {
                 onEvent(.stage("refine spec (vision slot)"))
                 spec = try await makeSpec(subjectPNGs: subjectPNGs,
                                           critique: review.critique,
-                                          previousSpec: spec, brief: brief)
+                                          previousSpec: spec, brief: brief,
+                                          extraViews: references.extras.map(\.label))
                 try write(spec, name: "spec-\(cycle + 1).json")
                 code = ""  // spec changed; force a fresh build instead of a patch
                 critique = nil
@@ -625,14 +634,15 @@ public final class SculptLoop {
     // MARK: - LLM stages
 
     /// The plain-language brief the user confirms; the spec compiles from it.
-    private func makeBrief(subjectPNGs: [Data]) async throws -> String {
+    private func makeBrief(subjectPNGs: [Data],
+                           extraViews: [String?]) async throws -> String {
         let result = try await config.vision.client.completeOnce(
             model: config.vision.modelID,
             messages: [
                 ChatMessage(role: .system, text: SculptPrompts.briefSystem),
                 ChatMessage(role: .user, content:
                     subjectPNGs.map { ChatContent.imagePNG($0) }
-                    + [.text(SculptPrompts.briefUser)]),
+                    + [.text(SculptPrompts.briefUser(extraViews: extraViews))]),
             ],
             temperature: SculptPrompts.briefTemperature,
             maxTokens: SculptPrompts.briefMaxTokens,
@@ -643,7 +653,8 @@ public final class SculptLoop {
     }
 
     private func makeSpec(subjectPNGs: [Data], critique: String?,
-                          previousSpec: String?, brief: String?) async throws -> String {
+                          previousSpec: String?, brief: String?,
+                          extraViews: [String?]) async throws -> String {
         let result = try await config.vision.client.completeOnce(
             model: config.vision.modelID,
             messages: [
@@ -652,7 +663,8 @@ public final class SculptLoop {
                     subjectPNGs.map { ChatContent.imagePNG($0) }
                     + [.text(SculptPrompts.specUser(critique: critique,
                                                     previousSpec: previousSpec,
-                                                    brief: brief))]),
+                                                    brief: brief,
+                                                    extraViews: extraViews))]),
             ],
             temperature: SculptPrompts.specTemperature,
             maxTokens: SculptPrompts.specMaxTokens,
