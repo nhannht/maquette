@@ -15,9 +15,17 @@ all. The whole validation sweep that shipped this app cost under $0.10.
 
 ![The app mid-sculpt on a MacBook Air photo: cycle cards with scores and critiques on the left, reference vs render comparison sheet and the judge's suggested next instruction on the right](showcase/product-showcase-1.png)
 
-![The same run in the embedded 3D viewer](showcase/product-showcase-2.png)
+![The same MacBook Air run in the embedded 3D viewer](showcase/product-showcase-2.png)
 
-The exported result model (`.usdz` - open it in AR Quick Look) lives in
+Another run, this time an iPhone - the judge climbs from 0.68 to 0.72
+across cycles, and the losing challenger is discarded so the best model
+always wins:
+
+![An iPhone run at the cycle gate: reference vs renders and the judge's critique](showcase/product-showcase-3.png)
+
+![The iPhone run in the embedded 3D viewer](showcase/product-showcase-4.png)
+
+The exported result models (`.usdz` - open them in AR Quick Look) live in
 [`showcase/`](showcase/).
 
 ## How it works
