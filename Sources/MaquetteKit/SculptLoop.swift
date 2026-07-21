@@ -423,7 +423,9 @@ public final class SculptLoop {
                 try write(png, name: "cycle-\(cycle)/render-\(view.rawValue).png")
             }
 
-            let sheet = try ComparisonSheet.compose(reference: subjects[0], renders: renders)
+            let sheet = try ComparisonSheet.compose(
+                references: zip(subjects, references.all).map { ($0, $1.label) },
+                renders: renders)
             try write(sheet, name: "cycle-\(cycle)/comparison.png")
 
             // Every reviewable cycle's model is exported, not just the gate's

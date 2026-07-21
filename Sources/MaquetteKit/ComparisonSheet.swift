@@ -1,22 +1,35 @@
 import AppKit
 
-// One evidence image for the vision slot: reference photo on the left, the
-// four review renders in a labeled 2x2 grid on the right. The sheet is the
+// One evidence image for the vision slot: the reference photo(s) on the left
+// (primary as hero, extra views of the SAME object in a labeled strip below),
+// the four review renders in a labeled 2x2 grid on the right. The sheet is the
 // only thing the vision model sees, so labels are burned into the pixels.
 
 public enum ComparisonSheetError: Error, CustomStringConvertible {
     case encodeFailed
+    case noReference
 
-    public var description: String { "comparison sheet PNG encode failed" }
+    public var description: String {
+        switch self {
+        case .encodeFailed: return "comparison sheet PNG encode failed"
+        case .noReference: return "comparison sheet needs at least one reference"
+        }
+    }
 }
 
 public enum ComparisonSheet {
     static let height = 768
     static let referenceWidth = 576
     static let cell = 384
+    /// Height of the extra-views strip under the primary reference.
+    static let extrasStrip = 176
 
-    public static func compose(reference: CGImage,
+    public static func compose(references: [(image: CGImage, label: String?)],
                                renders: [(view: RenderView, png: Data)]) throws -> Data {
+        guard let primary = references.first else {
+            throw ComparisonSheetError.noReference
+        }
+        let extras = Array(references.dropFirst().prefix(ReferenceSet.maxExtras))
         let width = referenceWidth + cell * 2
         guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
                                          pixelsWide: width, pixelsHigh: height,
@@ -34,9 +47,26 @@ public enum ComparisonSheet {
         NSColor(calibratedWhite: 0.92, alpha: 1).setFill()
         NSRect(x: 0, y: 0, width: width, height: height).fill()
 
-        let referenceRect = NSRect(x: 0, y: 0, width: referenceWidth, height: height)
-        draw(image: reference, fitting: referenceRect.insetBy(dx: 8, dy: 8))
+        let strip = extras.isEmpty ? 0 : extrasStrip
+        let referenceRect = NSRect(x: 0, y: strip,
+                                   width: referenceWidth, height: height - strip)
+        draw(image: primary.image, fitting: referenceRect.insetBy(dx: 8, dy: 8))
         drawLabel("REFERENCE", at: NSPoint(x: 12, y: height - 34))
+
+        // Extra views sit under the primary, each labeled as the same object:
+        // unlabeled multi-object sheets are exactly what confused the judge
+        // in IMG3D-13.
+        if !extras.isEmpty {
+            let cellWidth = CGFloat(referenceWidth) / CGFloat(extras.count)
+            for (index, extra) in extras.enumerated() {
+                let rect = NSRect(x: CGFloat(index) * cellWidth, y: 0,
+                                  width: cellWidth, height: CGFloat(strip))
+                draw(image: extra.image, fitting: rect.insetBy(dx: 4, dy: 4))
+                let text = "REF \(index + 2) - \(extra.label?.uppercased() ?? "SAME OBJECT")"
+                drawLabel(text, at: NSPoint(x: rect.minX + 8, y: rect.maxY - 24),
+                          fontSize: 12)
+            }
+        }
 
         // 2x2 grid, reading order: top row front, threeQuarter; bottom row side, top.
         let slots: [(RenderView, NSRect)] = [
@@ -71,9 +101,10 @@ public enum ComparisonSheet {
         NSImage(cgImage: image, size: size).draw(in: fitted)
     }
 
-    private static func drawLabel(_ text: String, at point: NSPoint) {
+    private static func drawLabel(_ text: String, at point: NSPoint,
+                                  fontSize: CGFloat = 18) {
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.boldSystemFont(ofSize: 18),
+            .font: NSFont.boldSystemFont(ofSize: fontSize),
             .foregroundColor: NSColor.black,
         ]
         let string = NSAttributedString(string: text, attributes: attributes)
