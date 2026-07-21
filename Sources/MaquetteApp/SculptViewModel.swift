@@ -35,6 +35,11 @@ final class SculptViewModel {
     static let threshold = 0.7
     static let maxCycles = 5
 
+    enum ResultTab: String, CaseIterable {
+        case sheet = "Sheet"
+        case model = "3D"
+    }
+
     /// UI state while the loop waits between cycles for the user's go-ahead.
     struct CycleGateState {
         let snapshot: SculptCycleSnapshot
@@ -66,6 +71,11 @@ final class SculptViewModel {
     /// The resumed run's previous-best comparison sheet, so gate 0 shows the
     /// model being refined instead of a spinner.
     var seedComparison: NSImage?
+    /// The cycle whose artifacts the result column shows. nil = follow the
+    /// run: latest reviewed cycle while running, the best cycle when done.
+    var selectedCycle: Int?
+    /// Which face of the viewed cycle the result column shows.
+    var resultTab: ResultTab = .model
 
     private var briefContinuation: CheckedContinuation<String, Never>?
     private var cycleContinuation: CheckedContinuation<SculptCycleDecision, Never>?
@@ -148,6 +158,11 @@ final class SculptViewModel {
     private func settle(afterCancelSeeded seeded: Bool) {
         if seeded {
             cycles.removeAll { $0.review == nil }
+            // The round is void: the viewer snaps back to the standing best
+            // so the result column and the bottom bar agree again.
+            if let bestCycle {
+                select(cycle: bestCycle)
+            }
             phase = .done
         } else {
             phase = .idle
@@ -248,6 +263,25 @@ final class SculptViewModel {
         cycleGate?.selectedBase = cycle
     }
 
+    // MARK: - Cycle selection (result column viewer)
+
+    /// Show this cycle in the result column: its model in the 3D tab when the
+    /// cycle exported one, its comparison sheet otherwise.
+    func select(cycle id: Int) {
+        guard let record = cycles.first(where: { $0.id == id }) else { return }
+        selectedCycle = id
+        loadScene(from: record.usdzURL)
+    }
+
+    private func loadScene(from url: URL?) {
+        guard let url, let loaded = try? SCNScene(url: url) else {
+            scene = nil
+            return
+        }
+        loaded.background.contents = NSColor(calibratedWhite: 0.12, alpha: 1.0)
+        scene = loaded
+    }
+
     private func apply(_ event: SculptEvent) {
         switch event {
         case .stage(let name):
@@ -285,6 +319,11 @@ final class SculptViewModel {
                 let usdz = outDir.appendingPathComponent("cycle-\(cycle)/model.usdz")
                 if FileManager.default.fileExists(atPath: usdz.path) {
                     cycles[index].usdzURL = usdz
+                    // Follow mode: with no explicit selection, the viewer
+                    // tracks the freshest reviewed model.
+                    if selectedCycle == nil {
+                        loadScene(from: usdz)
+                    }
                 }
             }
         case .pairwise(let cycle, let challengerWon, let reason):
@@ -305,9 +344,11 @@ final class SculptViewModel {
             + "\(outcome.coderUsage.promptTokens + outcome.coderUsage.completionTokens) tokens, "
             + "vision \(outcome.visionUsage.calls) calls / "
             + "\(outcome.visionUsage.promptTokens + outcome.visionUsage.completionTokens) tokens"
+        // The run's result is its best model: selection snaps to it, and the
+        // user can re-click any card to inspect another cycle.
+        selectedCycle = bestCycle
         if let usdzURL {
-            scene = try? SCNScene(url: usdzURL)
-            scene?.background.contents = NSColor(calibratedWhite: 0.12, alpha: 1.0)
+            loadScene(from: usdzURL)
         }
         if let review = outcome.bestReview, let best = outcome.bestCycle,
            !outcome.finalFactory.isEmpty, let outDir {
@@ -329,6 +370,9 @@ final class SculptViewModel {
     func keepRefining(coder: ModelSlotConfig, vision: ModelSlotConfig,
                       coderSeesRenders: Bool) {
         guard phase == .done, let photoURL, let resumeSeed else { return }
+        // Back to follow mode: the viewer tracks new challengers as they land.
+        // The scene keeps the incumbent until the first review replaces it.
+        selectedCycle = nil
         begin(photo: photoURL, coder: coder, vision: vision,
               coderSeesRenders: coderSeesRenders, seed: resumeSeed)
     }
@@ -346,6 +390,8 @@ final class SculptViewModel {
         pendingBrief = nil
         cycleGate = nil
         seedComparison = nil
+        selectedCycle = nil
+        resultTab = .model
         briefContinuation = nil
         cycleContinuation = nil
         accepted = false

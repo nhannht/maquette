@@ -149,7 +149,18 @@ struct ContentView: View {
         }
     }
 
+    /// Tapping a card shows that cycle in the result column (its model when it
+    /// exported one, its sheet otherwise). Buttons inside keep priority.
     private func cycleCard(_ cycle: SculptViewModel.CycleRecord) -> some View {
+        selectableCard(cycle)
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(.blue.opacity(0.6), lineWidth: 2)
+                .opacity(vm.selectedCycle == cycle.id ? 1 : 0))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .onTapGesture { vm.select(cycle: cycle.id) }
+    }
+
+    private func selectableCard(_ cycle: SculptViewModel.CycleRecord) -> some View {
         card(title: "Cycle \(cycle.id)") {
             if let review = cycle.review {
                 HStack(spacing: 8) {
@@ -246,13 +257,7 @@ struct ContentView: View {
 
     private var resultColumn: some View {
         Group {
-            // The preview yields while a run is live: a refining round keeps
-            // the previous scene around for cancel-fallback, and gate 0's
-            // instruction box renders in the running branch below.
-            if let scene = vm.scene, vm.phase != .running {
-                SceneView(scene: scene,
-                          options: [.allowsCameraControl, .autoenablesDefaultLighting])
-            } else if case .failed(let message) = vm.phase {
+            if case .failed(let message) = vm.phase {
                 VStack(spacing: 12) {
                     Image(systemName: "xmark.octagon")
                         .font(.largeTitle)
@@ -270,21 +275,10 @@ struct ContentView: View {
                 if vm.pendingBrief != nil {
                     briefGate
                 } else {
+                    // The viewer runs live: sheet or 3D of the viewed cycle
+                    // above, the gate controls (or progress) below.
                     VStack(spacing: 12) {
-                        if let latest = vm.cycles.last(where: { $0.comparison != nil })?.comparison
-                            ?? vm.seedComparison {
-                            Image(nsImage: latest)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxWidth: 640)
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
-                            Text("latest result: reference vs current model")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ProgressView()
-                                .controlSize(.large)
-                        }
+                        viewerArea
                         if vm.cycleGate != nil {
                             cycleGateControls
                         } else {
@@ -300,9 +294,61 @@ struct ContentView: View {
                             }
                         }
                     }
+                    .padding(.vertical, 12)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
+                viewerArea
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    // MARK: - Cycle viewer (result column)
+
+    /// The cycle the result column shows: explicit selection first, otherwise
+    /// the run's own focus - the best cycle when done, the freshest cycle
+    /// with a sheet while running.
+    private var viewedCycle: SculptViewModel.CycleRecord? {
+        if let id = vm.selectedCycle {
+            return vm.cycles.first { $0.id == id }
+        }
+        if vm.phase == .done, let best = vm.bestCycle {
+            return vm.cycles.first { $0.id == best }
+        }
+        return vm.cycles.last { $0.comparison != nil }
+    }
+
+    private var viewerArea: some View {
+        let sheet = viewedCycle?.comparison ?? vm.seedComparison
+        return VStack(spacing: 8) {
+            if vm.scene != nil && sheet != nil {
+                Picker("View", selection: $vm.resultTab) {
+                    ForEach(SculptViewModel.ResultTab.allCases, id: \.self) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 160)
+            }
+            if vm.resultTab == .model, let scene = vm.scene {
+                SceneView(scene: scene,
+                          options: [.allowsCameraControl, .autoenablesDefaultLighting])
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let sheet {
+                Image(nsImage: sheet)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 640)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                Text(sheetCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if vm.phase == .done {
                 VStack(spacing: 8) {
                     Text("No 3D preview")
                         .foregroundStyle(.secondary)
@@ -315,8 +361,23 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ProgressView()
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    private var sheetCaption: String {
+        guard let cycle = viewedCycle else {
+            return "latest result: reference vs current model"
+        }
+        var caption = "cycle \(cycle.id): reference vs renders"
+        if cycle.review != nil && cycle.usdzURL == nil {
+            caption += " (no 3D model exported for this cycle)"
+        }
+        return caption
     }
 
     // MARK: - Human gates
