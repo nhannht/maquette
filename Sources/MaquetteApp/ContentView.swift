@@ -491,6 +491,7 @@ struct ContentView: View {
 
     /// Gate 2: the judge's suggested next instruction. Edit it or just go.
     /// Gate 0 (Keep Refining) is the same box before any cycle has run.
+    /// Reference edits ride the same pause, collapsed until needed.
     private var cycleGateControls: some View {
         let refining = vm.cycleGate?.snapshot.cycle == 0
         return VStack(spacing: 10) {
@@ -499,6 +500,12 @@ struct ContentView: View {
                  : "Next instruction for the coder - edit or just continue.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            DisclosureGroup("Reference photos") {
+                referenceEditor
+                    .padding(.top, 6)
+            }
+            .font(.caption)
+            .frame(maxWidth: 640)
             TextEditor(text: Binding(
                 get: { vm.cycleGate?.critiqueDraft ?? "" },
                 set: { vm.cycleGate?.critiqueDraft = $0 }))

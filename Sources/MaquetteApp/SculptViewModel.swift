@@ -70,11 +70,12 @@ final class SculptViewModel {
     /// Non-nil while the loop waits for the user to confirm the suggested
     /// build brief; bound to the brief editor.
     var pendingBrief: String?
-    /// Reference edits staged at the brief gate (primary first, parallel
-    /// thumbnail array). Only a changed set is sent back to the loop.
+    /// Reference edits staged at whichever gate is open - brief gate or a
+    /// cycle gate (primary first, parallel thumbnail array). Only a changed
+    /// set is sent back to the loop.
     var pendingReferences: [ReferenceImage] = []
     var pendingReferenceThumbs: [NSImage] = []
-    private var briefBaseReferences: ReferenceSet?
+    private var gateBaseReferences: ReferenceSet?
     /// Non-nil while the loop waits between cycles.
     var cycleGate: CycleGateState?
     /// The resumed run's previous-best comparison sheet, so gate 0 shows the
@@ -200,12 +201,15 @@ final class SculptViewModel {
             pendingBrief = nil
             pendingReferences = []
             pendingReferenceThumbs = []
-            briefBaseReferences = nil
+            gateBaseReferences = nil
             cont.resume(returning: BriefDecision(brief: draft))
         }
         if let cont = cycleContinuation {
             cycleContinuation = nil
             cycleGate = nil
+            pendingReferences = []
+            pendingReferenceThumbs = []
+            gateBaseReferences = nil
             cont.resume(returning: SculptCycleDecision(action: .continueRun))
         }
         runTask?.cancel()
@@ -228,7 +232,7 @@ final class SculptViewModel {
                     self.pendingReferenceThumbs = draft.references.all.map {
                         NSImage(contentsOfFile: $0.path) ?? NSImage()
                     }
-                    self.briefBaseReferences = draft.references
+                    self.gateBaseReferences = draft.references
                     self.briefContinuation = cont
                 }
             },
@@ -254,6 +258,11 @@ final class SculptViewModel {
                         snapshot: snapshot,
                         critiqueDraft: snapshot.review.critique,
                         selectedBase: snapshot.bestCycle)
+                    self.pendingReferences = snapshot.references.all
+                    self.pendingReferenceThumbs = snapshot.references.all.map {
+                        NSImage(contentsOfFile: $0.path) ?? NSImage()
+                    }
+                    self.gateBaseReferences = snapshot.references
                     self.cycleContinuation = cont
                 }
             })
@@ -264,24 +273,28 @@ final class SculptViewModel {
     func approveBrief() {
         guard let cont = briefContinuation else { return }
         let brief = pendingBrief ?? ""
-        // Only a genuinely changed set travels back to the loop (and only
-        // then does the loop re-lift subjects).
-        var changed: ReferenceSet?
-        if let primary = pendingReferences.first {
-            let staged = ReferenceSet(primary: primary,
-                                      extras: Array(pendingReferences.dropFirst()))
-            if staged != briefBaseReferences {
-                changed = staged
-                applyReferences(staged)
-            }
-        }
+        let changed = takeStagedReferences()
         briefContinuation = nil
         pendingBrief = nil
-        pendingReferences = []
-        pendingReferenceThumbs = []
-        briefBaseReferences = nil
         currentStage = "building the spec"
         cont.resume(returning: BriefDecision(brief: brief, references: changed))
+    }
+
+    /// The staged set when it genuinely differs from the gate's base - only
+    /// then does the loop re-lift and rebuild. Clears the staging either way
+    /// and syncs the run state so cards and Keep Refining follow the change.
+    private func takeStagedReferences() -> ReferenceSet? {
+        defer {
+            pendingReferences = []
+            pendingReferenceThumbs = []
+            gateBaseReferences = nil
+        }
+        guard let primary = pendingReferences.first else { return nil }
+        let staged = ReferenceSet(primary: primary,
+                                  extras: Array(pendingReferences.dropFirst()))
+        guard staged != gateBaseReferences else { return nil }
+        applyReferences(staged)
+        return staged
     }
 
     // MARK: - Brief-gate reference edits
@@ -325,7 +338,8 @@ final class SculptViewModel {
             ? nil : gate.selectedBase
         cont.resume(returning: SculptCycleDecision(
             action: accept ? .acceptNow : .continueRun,
-            critique: critique, forcedIncumbent: forced))
+            critique: critique, forcedIncumbent: forced,
+            references: takeStagedReferences()))
     }
 
     /// The human eye outranks the pairwise judge: while paused, any reviewed
@@ -472,7 +486,7 @@ final class SculptViewModel {
         referenceImages = []
         pendingReferences = []
         pendingReferenceThumbs = []
-        briefBaseReferences = nil
+        gateBaseReferences = nil
         currentStage = ""
         startedAt = nil
         cycles = []
