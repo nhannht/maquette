@@ -246,7 +246,10 @@ struct ContentView: View {
 
     private var resultColumn: some View {
         Group {
-            if let scene = vm.scene {
+            // The preview yields while a run is live: a refining round keeps
+            // the previous scene around for cancel-fallback, and gate 0's
+            // instruction box renders in the running branch below.
+            if let scene = vm.scene, vm.phase != .running {
                 SceneView(scene: scene,
                           options: [.allowsCameraControl, .autoenablesDefaultLighting])
             } else if case .failed(let message) = vm.phase {
