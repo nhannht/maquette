@@ -2,6 +2,8 @@
 
 Drop a photo, get a sculpted 3D model.
 
+Site (live 3D models, the sculpt-loop timeline): [maquette.nhannht.io.vn](https://maquette.nhannht.io.vn)
+
 A coder LLM writes procedural Three.js geometry from your photo. A built-in
 renderer screenshots it from four angles. A vision LLM compares the renders
 against the photo, scores them, and tells the coder what to fix. The loop
