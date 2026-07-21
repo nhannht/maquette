@@ -10,12 +10,15 @@ gate, or let it run on autopilot. Out come `model.glb` and `model.usdz`,
 ready for Blender, Unity, the web, or AR Quick Look on your iPhone.
 
 Bring your own key. Any OpenAI-compatible endpoint works - OpenRouter,
-Moonshot, or a local Ollama / LM Studio with no key at all. The whole
-validation sweep that shipped this app cost under $0.10.
+OpenAI, Anthropic, Moonshot, or a local Ollama / LM Studio with no key at
+all. The whole validation sweep that shipped this app cost under $0.10.
 
-![The app mid-sculpt](showcase/hero.png)
+![The app mid-sculpt on a MacBook Air photo: cycle cards with scores and critiques on the left, reference vs render comparison sheet and the judge's suggested next instruction on the right](showcase/product-showcase-1.png)
 
-![Reference photo beside the sculpted model](showcase/result.png)
+![The same run in the embedded 3D viewer](showcase/product-showcase-2.png)
+
+The exported result model (`.usdz` - open it in AR Quick Look) lives in
+[`showcase/`](showcase/).
 
 ## How it works
 
@@ -69,7 +72,9 @@ photos on quiet backgrounds sculpt best.
 
 `build.sh` signs with your Apple Development certificate if one exists so the
 Keychain's "Always Allow" sticks across rebuilds; without one it falls back
-to plain `swift build` behavior. `swift test` runs the 43-test suite.
+to plain `swift build` behavior. `./build.sh app` additionally wraps the
+binary in a proper `Maquette.app` (Dock icon, Spotlight) and installs it to
+`/Applications`. `swift test` runs the 53-test suite.
 
 ## CLI
 
@@ -83,6 +88,7 @@ maquette-cli sculpt <photo> --out DIR
     [--coder-model ID] [--vision-model ID]
     [--coder-endpoint URL] [--vision-endpoint URL]
     [--cycles N] [--threshold X] [--coder-text-only]
+    [--coder-thinking-cap N] [--vision-thinking-cap N]
     [--intent TEXT] [--spec-file PATH]
 ```
 

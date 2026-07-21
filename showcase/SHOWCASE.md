@@ -1,14 +1,12 @@
-# Showcase checklist
+# Showcase
 
-This product ships with at least 2 real images here (product-showcase rule).
-Needed before any "done / shipped / released" claim:
+Real captures from a real run - nothing staged. Subject: the user's own
+MacBook Air photo.
 
-1. Hero shot: the app mid-sculpt - reference photo beside the current cycle's
-   render, score visible. (Best captured during Phase 5 benchmarks.)
-2. Result shot: finished model in AR Quick Look next to the original photo
-   (the chest or earbuds benchmark).
+- `product-showcase-1.png` - hero: the app mid-refine, subject lift, cycle
+  cards with scores and critiques, reference vs render comparison sheet, and
+  the judge's suggested next instruction at the gate.
+- `product-showcase-2.png` - the same run in the embedded 3D viewer.
+- `model-macbook-air.usdz` - the exported result model; open in AR Quick Look.
 
-Stretch: a GIF of the cycle-by-cycle progression (blockout -> scored -> final)
-for the README hero.
-
-Status: 0/2 - images supplied or approved by the user, not auto-captured.
+Status: 2 real images present - showcase requirement met (user-supplied).
