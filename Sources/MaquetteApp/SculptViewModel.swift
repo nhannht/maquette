@@ -55,6 +55,10 @@ final class SculptViewModel {
     var photoURL: URL?
     var photoImage: NSImage?
     var subjectImage: NSImage?
+    /// The run's reference images (primary first); fuels Keep Refining and
+    /// the photo card thumbnails.
+    var references: ReferenceSet?
+    var referenceImages: [NSImage] = []
     var currentStage = ""
     var startedAt: Date?
     var cycles: [CycleRecord] = []
@@ -66,6 +70,11 @@ final class SculptViewModel {
     /// Non-nil while the loop waits for the user to confirm the suggested
     /// build brief; bound to the brief editor.
     var pendingBrief: String?
+    /// Reference edits staged at the brief gate (primary first, parallel
+    /// thumbnail array). Only a changed set is sent back to the loop.
+    var pendingReferences: [ReferenceImage] = []
+    var pendingReferenceThumbs: [NSImage] = []
+    private var briefBaseReferences: ReferenceSet?
     /// Non-nil while the loop waits between cycles.
     var cycleGate: CycleGateState?
     /// The resumed run's previous-best comparison sheet, so gate 0 shows the
@@ -96,19 +105,28 @@ final class SculptViewModel {
 
     // MARK: - Running
 
-    func run(photo: URL, coder: ModelSlotConfig, vision: ModelSlotConfig,
+    func run(photos: [URL], coder: ModelSlotConfig, vision: ModelSlotConfig,
              coderSeesRenders: Bool = true,
              autoContinue: @escaping () -> Bool = { false }) {
-        guard phase != .running else { return }
+        guard phase != .running, let first = photos.first else { return }
         reset()
-        photoURL = photo
-        photoImage = NSImage(contentsOf: photo)
+        let set = ReferenceSet(
+            primary: ReferenceImage(path: first.path),
+            extras: photos.dropFirst().map { ReferenceImage(path: $0.path) })
+        photoURL = first
+        photoImage = NSImage(contentsOf: first)
+        applyReferences(set)
         self.autoContinue = autoContinue
-        begin(photo: photo, coder: coder, vision: vision,
+        begin(references: set, coder: coder, vision: vision,
               coderSeesRenders: coderSeesRenders, seed: nil)
     }
 
-    private func begin(photo: URL, coder: ModelSlotConfig,
+    private func applyReferences(_ set: ReferenceSet) {
+        references = set
+        referenceImages = set.all.compactMap { NSImage(contentsOfFile: $0.path) }
+    }
+
+    private func begin(references: ReferenceSet, coder: ModelSlotConfig,
                        vision: ModelSlotConfig, coderSeesRenders: Bool,
                        seed: SculptSeed?) {
         phase = .running
@@ -126,7 +144,8 @@ final class SculptViewModel {
                 if let existing = self.outDir {
                     outDir = existing
                 } else {
-                    outDir = try Self.makeRunDir(photo: photo)
+                    outDir = try Self.makeRunDir(
+                        photo: URL(fileURLWithPath: references.primary.path))
                     self.outDir = outDir
                 }
                 try await harness.start()
@@ -137,7 +156,7 @@ final class SculptViewModel {
                                           outDir: outDir)
                 let loop = SculptLoop(config: config, harness: harness)
                 let outcome = try await loop.run(
-                    references: ReferenceSet(primary: ReferenceImage(path: photo.path)),
+                    references: references,
                     seed: seed,
                     gate: makeGate(seeded: seed != nil)) { [weak self] event in
                     self?.apply(event)
@@ -179,6 +198,9 @@ final class SculptViewModel {
             briefContinuation = nil
             let draft = pendingBrief ?? ""
             pendingBrief = nil
+            pendingReferences = []
+            pendingReferenceThumbs = []
+            briefBaseReferences = nil
             cont.resume(returning: BriefDecision(brief: draft))
         }
         if let cont = cycleContinuation {
@@ -202,6 +224,11 @@ final class SculptViewModel {
                 return await withCheckedContinuation { cont in
                     self.currentStage = "confirm the brief"
                     self.pendingBrief = draft.brief
+                    self.pendingReferences = draft.references.all
+                    self.pendingReferenceThumbs = draft.references.all.map {
+                        NSImage(contentsOfFile: $0.path) ?? NSImage()
+                    }
+                    self.briefBaseReferences = draft.references
                     self.briefContinuation = cont
                 }
             },
@@ -237,10 +264,53 @@ final class SculptViewModel {
     func approveBrief() {
         guard let cont = briefContinuation else { return }
         let brief = pendingBrief ?? ""
+        // Only a genuinely changed set travels back to the loop (and only
+        // then does the loop re-lift subjects).
+        var changed: ReferenceSet?
+        if let primary = pendingReferences.first {
+            let staged = ReferenceSet(primary: primary,
+                                      extras: Array(pendingReferences.dropFirst()))
+            if staged != briefBaseReferences {
+                changed = staged
+                applyReferences(staged)
+            }
+        }
         briefContinuation = nil
         pendingBrief = nil
+        pendingReferences = []
+        pendingReferenceThumbs = []
+        briefBaseReferences = nil
         currentStage = "building the spec"
-        cont.resume(returning: BriefDecision(brief: brief))
+        cont.resume(returning: BriefDecision(brief: brief, references: changed))
+    }
+
+    // MARK: - Brief-gate reference edits
+
+    func addPendingReference(_ url: URL) {
+        guard pendingReferences.count < 1 + ReferenceSet.maxExtras else { return }
+        pendingReferences.append(ReferenceImage(path: url.path))
+        pendingReferenceThumbs.append(NSImage(contentsOf: url) ?? NSImage())
+    }
+
+    /// The last reference cannot go: the loop needs at least one photo.
+    func removePendingReference(at index: Int) {
+        guard pendingReferences.count > 1,
+              pendingReferences.indices.contains(index) else { return }
+        pendingReferences.remove(at: index)
+        pendingReferenceThumbs.remove(at: index)
+    }
+
+    func makePendingPrimary(_ index: Int) {
+        guard index != 0, pendingReferences.indices.contains(index) else { return }
+        pendingReferences.insert(pendingReferences.remove(at: index), at: 0)
+        pendingReferenceThumbs.insert(pendingReferenceThumbs.remove(at: index), at: 0)
+        // The primary slot has no label - the sheet names it REFERENCE.
+        pendingReferences[0].label = nil
+    }
+
+    func setPendingLabel(_ index: Int, _ label: String) {
+        guard pendingReferences.indices.contains(index) else { return }
+        pendingReferences[index].label = label.isEmpty ? nil : label
     }
 
     /// The user decided between cycles. Only what they actually changed
@@ -370,11 +440,11 @@ final class SculptViewModel {
     /// new cycles must beat it through the pairwise gate.
     func keepRefining(coder: ModelSlotConfig, vision: ModelSlotConfig,
                       coderSeesRenders: Bool) {
-        guard phase == .done, let photoURL, let resumeSeed else { return }
+        guard phase == .done, let references, let resumeSeed else { return }
         // Back to follow mode: the viewer tracks new challengers as they land.
         // The scene keeps the incumbent until the first review replaces it.
         selectedCycle = nil
-        begin(photo: photoURL, coder: coder, vision: vision,
+        begin(references: references, coder: coder, vision: vision,
               coderSeesRenders: coderSeesRenders, seed: resumeSeed)
     }
 
@@ -383,6 +453,11 @@ final class SculptViewModel {
         photoURL = nil
         photoImage = nil
         subjectImage = nil
+        references = nil
+        referenceImages = []
+        pendingReferences = []
+        pendingReferenceThumbs = []
+        briefBaseReferences = nil
         currentStage = ""
         startedAt = nil
         cycles = []

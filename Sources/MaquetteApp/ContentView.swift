@@ -35,28 +35,30 @@ struct ContentView: View {
 
     private func handleDrop(_ urls: [URL]) -> Bool {
         guard vm.phase != .running else { return false }
-        guard let url = urls.first(where: {
+        let images = urls.filter {
             UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true
-        }) else { return false }
-        start(url)
+        }.prefix(1 + ReferenceSet.maxExtras)
+        guard !images.isEmpty else { return false }
+        start(Array(images))
         return true
     }
 
     private func openPhotoPanel() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a photo of a single object"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        start(url)
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose 1 to \(1 + ReferenceSet.maxExtras) photos of "
+            + "a single object (extra photos are further views of it)"
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        start(Array(panel.urls.prefix(1 + ReferenceSet.maxExtras)))
     }
 
-    private func start(_ url: URL) {
+    private func start(_ urls: [URL]) {
         guard let coder = coderConfig, let vision = visionConfig else {
             openSettings()
             return
         }
-        vm.run(photo: url, coder: coder, vision: vision,
+        vm.run(photos: urls, coder: coder, vision: vision,
                coderSeesRenders: settings.coderSeesRenders,
                autoContinue: { [weak settings] in settings?.autoContinue ?? false })
     }
@@ -72,7 +74,9 @@ struct ContentView: View {
                 .font(.title2)
             Text("A coder LLM writes procedural geometry, a built-in renderer previews " +
                  "it, a vision model scores it against your photo, and the loop repeats " +
-                 "until it looks right. Then GLB + USDZ export.")
+                 "until it looks right. Then GLB + USDZ export. Drop up to " +
+                 "\(1 + ReferenceSet.maxExtras) photos - extra views of the same " +
+                 "object sharpen the result.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -128,11 +132,19 @@ struct ContentView: View {
     private var cycleColumn: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                card(title: "Photo") {
+                card(title: vm.referenceImages.count > 1 ? "Photos" : "Photo") {
+                    let thumbHeight: CGFloat = vm.referenceImages.count > 1 ? 64 : 110
                     HStack(alignment: .top, spacing: 8) {
-                        thumbnail(vm.photoImage)
+                        if vm.referenceImages.isEmpty {
+                            thumbnail(vm.photoImage, maxHeight: thumbHeight)
+                        } else {
+                            ForEach(vm.referenceImages.indices, id: \.self) { index in
+                                thumbnail(vm.referenceImages[index],
+                                          maxHeight: thumbHeight)
+                            }
+                        }
                         if vm.subjectImage != nil {
-                            thumbnail(vm.subjectImage)
+                            thumbnail(vm.subjectImage, maxHeight: thumbHeight)
                         }
                     }
                     if vm.subjectImage != nil {
@@ -382,13 +394,15 @@ struct ContentView: View {
 
     // MARK: - Human gates
 
-    /// Gate 1: the model's suggested prompt, in plain language. Edit it or
-    /// just start - this is where "the box opens, earbuds inside" enters.
+    /// Gate 1, the input gate: the model's suggested prompt in plain language
+    /// plus the reference set - intent beyond the photo AND extra views enter
+    /// here, before any coder token is spent.
     private var briefGate: some View {
         VStack(spacing: 12) {
             Text("Here is what I see. Correct or add anything, then start.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            referenceEditor
             TextEditor(text: Binding(
                 get: { vm.pendingBrief ?? "" },
                 set: { vm.pendingBrief = $0 }))
@@ -403,6 +417,76 @@ struct ContentView: View {
                 .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Add, remove, relabel, or re-prime the reference photos while the loop
+    /// is parked at the brief gate.
+    private var referenceEditor: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ForEach(vm.pendingReferences.indices, id: \.self) { index in
+                VStack(spacing: 4) {
+                    if vm.pendingReferenceThumbs.indices.contains(index) {
+                        Image(nsImage: vm.pendingReferenceThumbs[index])
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 84, height: 84)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
+                    if index == 0 {
+                        Text("primary")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(.blue.opacity(0.2), in: Capsule())
+                    } else {
+                        TextField("label (back...)", text: Binding(
+                            get: {
+                                vm.pendingReferences.indices.contains(index)
+                                    ? (vm.pendingReferences[index].label ?? "") : ""
+                            },
+                            set: { vm.setPendingLabel(index, $0) }))
+                            .textFieldStyle(.roundedBorder)
+                            .font(.caption)
+                            .frame(width: 84)
+                        Button("make primary") { vm.makePendingPrimary(index) }
+                            .buttonStyle(.link)
+                            .font(.caption2)
+                    }
+                    if vm.pendingReferences.count > 1 {
+                        Button("remove") { vm.removePendingReference(at: index) }
+                            .buttonStyle(.link)
+                            .font(.caption2)
+                    }
+                }
+            }
+            if vm.pendingReferences.count < 1 + ReferenceSet.maxExtras {
+                Button {
+                    addReferencesFromPanel()
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: "plus")
+                        Text("Add view")
+                            .font(.caption)
+                    }
+                    .frame(width: 84, height: 84)
+                    .background(.quaternary.opacity(0.4),
+                                in: RoundedRectangle(cornerRadius: 4))
+                }
+                .buttonStyle(.plain)
+                .help("More photos of the same object: back, open state, detail.")
+            }
+        }
+    }
+
+    private func addReferencesFromPanel() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = true
+        panel.message = "Add more views of the same object"
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls {
+            vm.addPendingReference(url)
+        }
     }
 
     /// Gate 2: the judge's suggested next instruction. Edit it or just go.
