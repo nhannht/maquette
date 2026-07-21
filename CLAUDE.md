@@ -13,17 +13,28 @@ against the photo, and the loop iterates to a threshold. Then GLB + USDZ export.
 
 ## Architecture (v1)
 
-photo -> subject lift (DepthCardKit, on-device)
+photo(s) -> subject lift per view (DepthCardKit, on-device)
+         (ReferenceSet: 1 primary + up to 3 extra views of the SAME object,
+          labels optional - References.swift)
       -> recognize: suggested plain-language build brief (vision slot)
-         [GATE 1: user edits or accepts - intent beyond the photo enters here]
-      -> spec JSON compiled from photo + brief (vision slot, internal)
-      -> Three.js factory code (coder slot)
+         [GATE 1 - the input gate: user edits the brief AND the reference set
+          (add/remove/relabel/re-prime); intent beyond the photo enters here]
+      -> spec JSON compiled from photo(s) + brief (vision slot, internal)
+      -> Three.js factory code (coder slot; fresh builds attach the reference
+         photos when coderSeesRenders is on, spec stays authoritative)
       -> render + screenshots (bundled three.js in WKWebView, fixed viewpoints)
-      -> comparison sheet -> score + critique (vision slot) -> pairwise gate
-         [GATE 2: suggested next instruction, user edits or continues; skipped
+      -> comparison sheet (primary hero + labeled REF strip)
+      -> score + critique (vision slot) -> pairwise gate
+         [GATE 2: suggested next instruction, user edits or continues; can also
+          edit references - subjects re-lift, spec recompiles keeping the
+          incumbent, all stored sheets rebuild from disk renders; skipped
           when the run is ending or Settings > Auto-continue is on]
       -> loop (cap 5 cycles)
       -> GLB + USDZ (three.js exporter addons in the WKWebView) -> AR Quick Look
+
+Every cycle exports cycle-N/model.usdz; the app's result column embeds a
+SceneKit viewer with a Sheet|3D toggle - click any cycle card to inspect that
+cycle's model (selection follows the run when untouched).
 
 The judge receives the spec: parts the brief adds beyond the photo (interior,
 open state) are scored against the spec, never punished against the photo.
