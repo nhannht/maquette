@@ -90,7 +90,7 @@ export default function Hero() {
         <div className="hero-viewer-wrap">
           <ModelViewer
             src={HERO_MODEL}
-            ariaLabel="A 3D model of an open MacBook Air, sculpted by Maquette. Drag to orbit it."
+            ariaLabel="A 3D model of a MacBook Air M5, sculpted by Maquette from a photo. Drag to orbit it."
             eager
             autoRotate
             autoRotateSpeed={0.6}
@@ -129,9 +129,9 @@ export default function Hero() {
         <div className="hero-copy hero-copy-b" ref={copyBRef} aria-hidden={reduced ? undefined : true}>
           <h2 className="hero-b-head">Not a picture of a model.</h2>
           <p className="lede">
-            This is a real GLB you can orbit right now, export to Blender, Unity, or the web,
-            and drop into AR Quick Look on your iPhone. Out come <code>model.glb</code> and{" "}
-            <code>model.usdz</code>, every cycle.
+            That MacBook Air M5 is a real GLB you can orbit right now, export to Blender, Unity,
+            or the web, and drop into AR Quick Look on your iPhone. Out come{" "}
+            <code>model.glb</code> and <code>model.usdz</code>, every cycle.
           </p>
           <div className="hero-cta">
             <a className="btn btn-primary" href="#sculpt">

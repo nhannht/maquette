@@ -25,7 +25,7 @@ export interface Cycle {
 // iPhone run - the timeline centerpiece. A real, verifiable climb:
 // 0.45 -> 0.68 -> 0.72, and the exported model.glb is byte-identical to cycle 3.
 export const TIMELINE_SUBJECT =
-  "A pastel-lilac flagship phone: silver aluminium rails, matte glass back, a dual-camera pill bump, and a purple-blue radial flower wallpaper.";
+  "An iPhone 17 in pastel lilac: silver aluminum rails, matte glass back, a dual-camera pill bump, and a purple-blue radial flower wallpaper.";
 
 export const timelineCycles: Cycle[] = [
   {
@@ -87,7 +87,7 @@ export interface GalleryItem {
 export const gallery: GalleryItem[] = [
   {
     id: "iphone",
-    name: "Lilac phone",
+    name: "iPhone 17",
     subtitle: "3 cycles, judged to 0.72",
     model: "/models/iphone.glb",
     usdz: "/models/iphone.usdz",

@@ -49,8 +49,8 @@ export default function Juxtapose() {
         <p className="eyebrow">This photo became this model</p>
         <h2 id="jx-title">A single reference photo in. A sculpted 3D model out.</h2>
         <p className="section-sub">
-          Left is the photo you drop in. Right is one of the four angles Maquette rendered from
-          the model it built - the exact renders its judge scored. Drag to compare.
+          Left is the iPhone 17 photo you drop in. Right is one of the four angles Maquette
+          rendered from the model it built - the exact renders its judge scored. Drag to compare.
         </p>
       </div>
 
@@ -65,13 +65,13 @@ export default function Juxtapose() {
         <img
           className="jx-img jx-render"
           src={JUXTAPOSE.render}
-          alt="Maquette's rendered 3D model of the phone, front angle"
+          alt="Maquette's rendered 3D model of the iPhone 17, front angle"
           draggable={false}
         />
         <img
           className="jx-img jx-photo"
           src={JUXTAPOSE.photo}
-          alt="The reference photo dropped into Maquette"
+          alt="The reference iPhone 17 photo dropped into Maquette"
           draggable={false}
           style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}
         />

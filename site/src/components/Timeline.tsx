@@ -51,9 +51,9 @@ export default function Timeline() {
         <p className="eyebrow">The differentiator - watch it sculpt itself</p>
         <h2 id="sculpt-title">Every cycle is judged. The best one wins.</h2>
         <p className="section-sub">
-          A real run, three cycles, no edits. The vision model scored each attempt against the
-          photo and wrote the coder its next instruction. Scrub the cycles and watch the model -
-          and the score - climb. These are the actual numbers from the run&apos;s{" "}
+          A real iPhone 17 run, three cycles, no edits. The vision model scored each attempt
+          against the photo and wrote the coder its next instruction. Scrub the cycles and watch
+          the model - and the score - climb. These are the actual numbers from the run&apos;s{" "}
           <code>review.json</code>.
         </p>
       </div>
