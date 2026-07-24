@@ -71,8 +71,13 @@ Apple Silicon, macOS 14+. The app is signed with a Developer ID and
 notarized by Apple.
 
 ```
-brew install --cask nhannht/tap/maquette
+brew tap nhannht/tap
+brew trust --tap nhannht/tap
+brew install --cask maquette
 ```
+
+Homebrew 6.0 needs the `trust` line for any third-party tap before it will
+install. You run it once per machine.
 
 Or grab the notarized DMG from
 [Releases](https://github.com/nhannht/maquette/releases).
